@@ -171,6 +171,16 @@ def submit_check(text: str | None = None) -> dict:
     return {"ratio": round(ratio, 4), "min": need, "identical": ratio == 0, "ok": ratio >= need}
 
 
+def change_block_message(sc: dict, action: str = "질문을 생성") -> str | None:
+    """바뀐 분량이 기준에 못 미치면 막는 이유를 돌려준다. 생성과 제출이 같은 기준을 쓴다."""
+    if sc["ok"]:
+        return None
+    need = f"{round(sc['min'] * 100)}%"
+    if sc["identical"]:
+        return f"③이 v9.0.0과 같아서 {action}할 수 없어요. {need} 이상 바꿔 주세요."
+    return f"③ 바뀐 분량이 {sc['ratio'] * 100:.1f}%예요. {need} 이상 바꿔야 {action}할 수 있어요. 공백·빈 줄 차이는 세지 않아요."
+
+
 # ---------------------------------------------------------------------------
 # 기준선 (v9.0.0)
 # ---------------------------------------------------------------------------
@@ -219,6 +229,109 @@ def load_base_url() -> str:
                 if v:
                     return v
     return os.environ.get("OPENAI_BASE_URL") or CFG["base_url"]
+
+
+# ---------------------------------------------------------------------------
+# 처음 준비: 개인 브랜치, API 키
+# ---------------------------------------------------------------------------
+BRANCH_NAME_RE = re.compile(r"[a-z][a-z0-9-]{1,30}")
+
+
+def slugify(s: str | None) -> str | None:
+    s = re.sub(r"[^a-z0-9-]+", "-", (s or "").strip().lower()).strip("-")
+    s = re.sub(r"-{2,}", "-", s)
+    return s if BRANCH_NAME_RE.fullmatch(s) else None
+
+
+_SUGGESTED: dict = {}
+
+
+def suggest_branch_name() -> str | None:
+    """GitHub 로그인 이름(gh) → git 사용자 이름 → 메일 앞부분 순서로 브랜치 이름을 정한다."""
+    if "name" in _SUGGESTED:
+        return _SUGGESTED["name"]
+    name = None
+    try:
+        r = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True, text=True, timeout=8)
+        if r.returncode == 0:
+            name = slugify(r.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    if not name:
+        name = slugify(git_ok("config", "user.name"))
+    if not name:
+        name = slugify((git_ok("config", "user.email") or "").split("@")[0])
+    _SUGGESTED["name"] = name
+    return name
+
+
+def ensure_branch(name: str | None) -> dict:
+    """개인 브랜치(contest/이름)를 만들고 원격에 올린다. 이미 개인 브랜치면 그대로 둔다."""
+    prefix = CFG["branch_prefix"]
+    info = git_info()
+    if not info.get("repo"):
+        return {"ok": False, "message": "git 저장소가 아니에요. 운영 레포를 클론한 폴더에서 실행해 주세요."}
+    if (info.get("branch") or "").startswith(prefix):
+        return {"ok": True, "branch": info["branch"], "created": False, "message": "이미 개인 브랜치예요."}
+    name = slugify(name)
+    if not name:
+        return {"ok": False, "message": "이름은 영문 소문자로 시작하고 영문 소문자·숫자·하이픈만 쓸 수 있어요. 예: roy, hong-gildong"}
+    target = prefix + name
+    exists = git_ok("rev-parse", "--verify", "--quiet", target)
+    r = git("switch", target) if exists else git("switch", "-c", target)
+    if r.returncode != 0:
+        return {"ok": False, "message": "브랜치를 만들지 못했어요: " + r.stderr.strip()[:200]}
+    pushed, msg = False, "원격 저장소가 없어 이 PC에만 만들었어요."
+    if info.get("remote"):
+        p = git("push", "-u", "origin", target, timeout=60)
+        pushed = p.returncode == 0
+        msg = "원격에 올렸어요." if pushed else "원격에 올리지 못했어요. 다음 생성 때 다시 올려요."
+    return {"ok": True, "branch": target, "created": True, "pushed": pushed, "message": msg}
+
+
+def key_last4() -> str | None:
+    k = load_api_key()
+    return k[-4:] if k else None
+
+
+def write_api_key(key: str) -> None:
+    """.env의 OPENAI_API_KEY 줄만 바꾼다. 다른 줄(OPENAI_BASE_URL 등)은 그대로 둔다."""
+    env = ROOT / ".env"
+    src = env if env.exists() else ROOT / ".env.example"
+    lines = src.read_text(encoding="utf-8").splitlines() if src.exists() else []
+    out, done = [], False
+    for line in lines:
+        if line.strip().startswith("OPENAI_API_KEY="):
+            out.append(f"OPENAI_API_KEY={key}")
+            done = True
+        else:
+            out.append(line)
+    if not done:
+        out.append(f"OPENAI_API_KEY={key}")
+    env.write_text("\n".join(out) + "\n", encoding="utf-8")
+    try:
+        os.chmod(env, 0o600)
+    except OSError:
+        pass
+
+
+def try_save_key(raw: str | None) -> dict:
+    """붙여 넣은 키를 확인하고 저장한다. 키 값은 돌려주지 않고 끝자리 4자만 돌려준다."""
+    from .llm_client import LLMClient  # 순환 import 피하기
+    key = (raw or "").strip().strip('"').strip("'")
+    if not key or len(key) < 20 or any(ch.isspace() for ch in key):
+        return {"ok": False, "saved": False, "message": "키 형식이 아니에요. DM으로 받은 키를 처음부터 끝까지 다시 복사해 주세요."}
+    code = LLMClient(key, base_url=load_base_url()).check()
+    if code == 401:
+        return {"ok": False, "saved": False, "code": code, "message": "키가 맞지 않아요(401). DM으로 받은 키를 처음부터 끝까지 다시 복사해 붙여 넣어 주세요."}
+    write_api_key(key)
+    last4 = key[-4:]
+    if code == 200:
+        return {"ok": True, "saved": True, "last4": last4, "message": f"저장했어요 · 연결됨 · 끝자리 {last4}"}
+    if code is None:
+        return {"ok": True, "saved": True, "last4": last4, "message": f"저장했어요 · 끝자리 {last4} · 네트워크 문제로 연결은 확인하지 못했어요"}
+    return {"ok": True, "saved": True, "last4": last4, "code": code,
+            "message": f"저장했어요 · 끝자리 {last4} · 연결 확인은 HTTP {code}로 끝까지 하지 못했어요. 생성이 실패하면 운영자에게 알려 주세요"}
 
 
 # ---------------------------------------------------------------------------

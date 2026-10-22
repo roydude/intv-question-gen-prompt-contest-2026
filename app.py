@@ -4,8 +4,8 @@
 # ///
 """잡다 프롬프트 콘테스트 로컬 실행기.
 
-  uv run app.py                 화면 켜기 (http://localhost:8000)
-  uv run app.py setup --name gaon   처음 한 번: .env 준비, 개인 브랜치 contest/gaon 만들기
+  uv run app.py                 화면 켜기 (http://localhost:8000). 처음이면 개인 브랜치와 API 키부터 챙겨요
+  uv run app.py setup           개인 브랜치만 만들기 (/시작에서 사용)
   uv run app.py doctor          실행 환경 점검
   uv run app.py generate        화면 없이 한 사이클(질문 20개) 생성·채점
   uv run app.py generate --cases P01,P03   케이스 골라 생성(케이스당 질문 2개)
@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import getpass
 import json
+import os
 import re
 import shutil
 import socket
@@ -53,6 +55,7 @@ def cmd_serve(args) -> int:
             _p(f"  {port} 포트를 이미 쓰고 있어요. 화면이 이미 켜져 있다면 http://localhost:{port} 를 여세요.")
             _p(f"  다른 포트로 켜려면: uv run app.py --port {port + 1}")
             return 1
+    prepare(interactive=sys.stdin.isatty())
     from contest import server
     if not args.no_browser:
         threading_open(f"http://localhost:{port}")
@@ -66,7 +69,72 @@ def threading_open(url: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 처음 준비: 개인 브랜치와 API 키
+# ---------------------------------------------------------------------------
+def _read_clipboard() -> str | None:
+    if sys.platform == "darwin":
+        cmds = [["pbpaste"]]
+    elif os.name == "nt":
+        cmds = [["powershell", "-NoProfile", "-Command", "Get-Clipboard"]]
+    else:
+        cmds = [["wl-paste", "-n"], ["xclip", "-o", "-selection", "clipboard"], ["xsel", "-b", "-o"]]
+    for c in cmds:
+        try:
+            r = subprocess.run(c, capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if r.returncode == 0:
+            return r.stdout
+    return None
+
+
+def prepare(interactive: bool) -> None:
+    """처음 실행이면 개인 브랜치를 만들고 API 키를 받는다. 이미 끝났으면 아무 말도 하지 않는다."""
+    info = core.git_info()
+    if not info.get("repo"):
+        return
+    need_branch = not (info.get("branch") or "").startswith(C["branch_prefix"])
+    need_key = not core.load_api_key()
+    if not need_branch and not need_key:
+        return
+    _p("  처음 실행이라 준비부터 할게요. (이 PC에서 한 번만)")
+    core.LOCAL_DIR.mkdir(exist_ok=True)
+    if need_branch:
+        name = core.suggest_branch_name()
+        if not name and interactive:
+            name = input("  ? 개인 브랜치  영문 이름을 입력하세요 (예: roy): ").strip()
+        if name:
+            r = core.ensure_branch(name)
+            _p(f"  ✓ 개인 브랜치  {r['branch']} · {r['message']}" if r["ok"] else f"  ✗ 개인 브랜치  {r['message']}")
+        else:
+            _p("  · 개인 브랜치  화면 맨 위 시작 준비 카드에서 만들어요")
+    if need_key:
+        if not interactive:
+            _p("  · API 키      화면 맨 위 시작 준비 카드에 붙여 넣어요")
+            return
+        _p("  ? API 키      DM으로 받은 키를 복사한 뒤 Enter를 누르세요 (나중에 화면에서 넣으려면 s)")
+        for _ in range(3):
+            try:
+                ans = getpass.getpass("    > ")
+            except (EOFError, KeyboardInterrupt):
+                _p("")
+                break
+            if ans.strip().lower() == "s":
+                _p("  · API 키      화면 맨 위 시작 준비 카드에서 넣어요")
+                break
+            raw = ans.strip() or _read_clipboard()
+            if raw is None:
+                raw = getpass.getpass("    클립보드를 읽지 못했어요. 키를 붙여 넣고 Enter: ")
+            res = core.try_save_key(raw)
+            _p(f"  {'✓' if res['ok'] else '✗'} API 키      {res['message']}")
+            if res["ok"]:
+                break
+            _p("    키를 다시 복사한 뒤 Enter를 누르세요 (건너뛰려면 s)")
+    _p("")
+
+
 def cmd_setup(args) -> int:
+    """/시작에서 쓴다. 묻지 않고 처리할 수 있는 것만 한다(키는 사람이 화면에서 넣는다)."""
     info = core.git_info()
     if not info.get("repo"):
         _p("  git 저장소가 아니에요. 운영 레포를 git clone 한 폴더에서 실행해 주세요.")
@@ -76,47 +144,29 @@ def cmd_setup(args) -> int:
     if args.git_email:
         core.git("config", "user.email", args.git_email)
     info = core.git_info()
-    ok = True
     _p(f"  git 사용자   {info.get('user') or '없음'} <{info.get('email') or '없음'}>")
     if not info.get("user") or not info.get("email"):
         _p("    → git 사용자 이름·이메일이 필요해요: uv run app.py setup --git-name '이름' --git-email '메일'")
-        ok = False
-    env = core.ROOT / ".env"
-    if not env.exists():
-        shutil.copyfile(core.ROOT / ".env.example", env)
-        _p("  .env       만들었어요. 파일을 열어 OPENAI_API_KEY= 뒤에 받은 키를 직접 붙여 넣으세요.")
-    else:
-        _p(f"  .env       있음 · 키 {'들어 있음' if core.load_api_key() else '비어 있음 → 직접 붙여 넣으세요'}")
+        return 1
     core.LOCAL_DIR.mkdir(exist_ok=True)
     prefix = C["branch_prefix"]
-    branch = info.get("branch") or ""
-    if args.name:
-        name = args.name.strip().lower()
-        if not re.fullmatch(r"[a-z][a-z0-9-]{1,30}", name):
-            _p("  이름은 영문 소문자·숫자·하이픈만 써 주세요. 예: gaon, hong-gildong")
-            return 1
-        target = prefix + name
-        if branch != target:
-            exists = core.git_ok("rev-parse", "--verify", "--quiet", target)
-            r = core.git("switch", target) if exists else core.git("switch", "-c", target)
-            if r.returncode != 0:
-                _p("  브랜치를 만들지 못했어요: " + r.stderr.strip()[:200])
-                return 1
-        branch = target
-        _p(f"  개인 브랜치  {branch}")
-        if info.get("remote"):
-            r = core.git("push", "-u", "origin", branch, timeout=60)
-            _p("  원격 브랜치  " + ("올렸어요" if r.returncode == 0 else "올리지 못했어요: " + r.stderr.strip()[-200:]))
-        else:
-            _p("  원격 저장소  없음 (origin이 설정돼 있지 않아요)")
-    elif not branch.startswith(prefix):
-        _p(f"  개인 브랜치  아직 없어요 → uv run app.py setup --name 영문이름")
-        ok = False
+    if (info.get("branch") or "").startswith(prefix):
+        _p(f"  개인 브랜치  {info['branch']}")
     else:
-        _p(f"  개인 브랜치  {branch}")
+        name = args.name or core.suggest_branch_name()
+        if not name:
+            _p("  개인 브랜치  이름을 정하지 못했어요 → uv run app.py setup --name 영문이름")
+            return 1
+        r = core.ensure_branch(name)
+        if not r["ok"]:
+            _p("  개인 브랜치  " + r["message"])
+            return 1
+        _p(f"  개인 브랜치  {r['branch']} · {r['message']}")
+    last4 = core.key_last4()
+    _p(f"  API 키      {'저장돼 있음 · 끝자리 ' + last4 if last4 else '비어 있음 → 화면 맨 위 시작 준비 카드에 붙여 넣으세요'}")
     _p("")
-    _p("  다음: 키를 넣은 뒤 uv run app.py 로 화면을 켜세요." if ok else "  위 항목을 마친 뒤 다시 실행해 주세요.")
-    return 0 if ok else 1
+    _p("  다음: uv run app.py 로 화면을 켜세요.")
+    return 0
 
 
 def cmd_doctor(args) -> int:
@@ -168,6 +218,10 @@ def cmd_generate(args) -> int:
         return 1
     if not core.load_api_key():
         _p("  API 키가 없어요. .env 파일에 OPENAI_API_KEY를 직접 넣어 주세요.")
+        return 1
+    block = core.change_block_message(core.submit_check())
+    if block:
+        _p("  ✗ " + block)
         return 1
     run = engine.Run("pick" if ids else "all", ids, model, effort)
     try:
@@ -268,11 +322,9 @@ def cmd_submit(args) -> int:
     add, rem = _diff_counts(base, mine)
     sc = core.submit_check(mine)
     pct = min(sc["ratio"], 1) * 100
-    if sc["identical"]:
-        _p("  ✗ ③ 질문 생성 프롬프트가 v9.0.0과 같아서 제출할 수 없어요.")
-        return 1
-    if not sc["ok"]:
-        _p(f"  ✗ ③이 v9.0.0과 {pct:.1f}%만 달라요. {sc['min'] * 100:.0f}% 이상 바꿔야 제출할 수 있어요. (공백·빈 줄 차이는 세지 않아요)")
+    block = core.change_block_message(sc, "제출")
+    if block:
+        _p("  ✗ " + block)
         return 1
     _p(f"  ③ 변경      v9.0.0 대비 +{add}줄 −{rem}줄 · 바뀐 분량 {pct:.1f}%{' 이상' if sc['ratio'] >= 1 else ''}")
     fmt = core.format_changes("assignments", mine)
@@ -365,7 +417,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않기")
     sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("setup", help="처음 한 번: .env 준비, 개인 브랜치 만들기")
-    p.add_argument("--name", help="영문 이름 (브랜치 contest/이름)")
+    p.add_argument("--name", help="영문 이름 (브랜치 contest/이름). 없으면 GitHub 로그인 이름을 써요")
     p.add_argument("--git-name")
     p.add_argument("--git-email")
     p = sub.add_parser("doctor", help="실행 환경 점검")

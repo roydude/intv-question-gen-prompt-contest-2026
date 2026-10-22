@@ -133,7 +133,7 @@ def preflight(questions: int) -> None:
         raise RecordError("git 저장소가 아니에요. 레포를 클론한 폴더에서 실행해 주세요.")
     prefix = core.CFG["branch_prefix"]
     if not (info.get("branch") or "").startswith(prefix):
-        raise RecordError(f"개인 브랜치({prefix}영문이름)에서만 생성할 수 있어요. Claude Code에서 /시작을 먼저 해 주세요.")
+        raise RecordError(f"개인 브랜치({prefix}영문이름)에서만 생성할 수 있어요. 화면의 시작 준비 카드나 uv run app.py setup으로 브랜치를 먼저 만들어 주세요.")
     if not info.get("user") or not info.get("email"):
         raise RecordError("git 사용자 이름·이메일이 설정돼 있지 않아요. /시작에서 설정해 주세요.")
     v = verify()

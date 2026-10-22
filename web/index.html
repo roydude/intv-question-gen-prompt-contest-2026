@@ -28,6 +28,8 @@
 
 <!-- S1 프롬프트 편집 -->
 <main id="view-edit" class="view-edit">
+  <section id="setupCard" class="setup hidden" aria-label="시작 준비"></section>
+  <div class="edit-row">
   <section class="editor-card" id="edCard">
     <div class="ed-head">
       <div class="tabs" id="tabs"></div>
@@ -103,6 +105,7 @@
       <span class="lb">남은 질문</span><b class="blue" id="railRemain"></b>
     </button>
   </nav>
+  </div>
 </main>
 
 <!-- S3 결과 -->
@@ -143,6 +146,15 @@
   </div>
 </main>
 
+<!-- 결과 화면의 공고·지원자 정보 서랍 -->
+<aside id="caseDrawer" class="drawer hidden" aria-label="공고·지원자 정보">
+  <div class="dr-head">
+    <div class="row gap10 center"><span class="chip chip-dark sm" id="drLabel"></span><b class="h18" id="drWho"></b><span class="grow"></span><button class="x" id="drClose" title="닫기">✕</button></div>
+    <p class="sub xs" id="drSub"></p>
+  </div>
+  <div class="dr-body" id="drBody"></div>
+</aside>
+
 <!-- S2 질문 생성 창 -->
 <div class="modal-back hidden" id="genModal">
   <div class="modal w640">
@@ -174,7 +186,6 @@
       <div class="kv"><span class="sub">실행 후 남은 질문</span><b class="blue" id="sumRemain"></b></div>
       <div class="kv"><span class="sub">예상 시간</span><span id="sumTime" class="sub"></span></div>
     </div>
-    <div class="warn-row hidden" id="genChange"></div>
     <div class="warn-row hidden" id="genDirtyWarn">저장하지 않은 변경이 있어요. 저장한 뒤 생성해요.</div>
     <div class="err-row hidden" id="genErr"></div>
     <p class="muted xs">생성하기를 누르면 창이 닫히고 오른쪽 아래에 진행 상황이 보여요. 생성하는 동안에도 프롬프트를 고치고 저장할 수 있어요.</p>
@@ -192,17 +203,24 @@
       <div><b class="h22">기준 보기</b><p class="sub">화면 채점과 공식 평가가 같은 기준을 써요</p></div>
       <button class="x" data-close>✕</button>
     </div>
-    <div class="seg" id="critSeg">
-      <button class="on" data-anchor="critRubric">루브릭 J1~J4</button>
-      <button data-anchor="critFail">실패 유형 C1~C5</button>
-      <button data-anchor="critRules">규칙 진단 16개</button>
-    </div>
     <div class="m-scroll">
-      <div id="critRubric" class="rubric-table"></div>
-      <b class="h15">J2 실패 유형</b>
-      <div id="critFail" class="fail-box"></div>
-      <div class="row gap10 center"><b class="h15">규칙 진단 16개</b><span class="chip chip-gray sm">진단용 · 점수에 넣지 않음</span></div>
-      <div id="critRules" class="rules-grid"></div>
+      <section class="crit-sec">
+        <b class="h18">질문 평가 루브릭</b>
+        <p class="sub sm">질문마다 J1~J4를 1~5점으로 매겨 배점으로 환산해요. 질문 점수 = J1 + J2 + J3 + J4 (100점)</p>
+        <div id="critRubric" class="rubric-table"></div>
+      </section>
+      <div class="divider"></div>
+      <section class="crit-sec">
+        <b class="h18">J2 실패 유형</b>
+        <p class="sub sm">J2 질문 명확성을 판정하는 다섯 가지예요. 해당 없음 5점 · 1개 3점 · 2개 이상 1점</p>
+        <div id="critFail" class="fail-box"></div>
+      </section>
+      <div class="divider"></div>
+      <section class="crit-sec">
+        <div class="row gap10 center"><b class="h18">규칙 진단 16개</b><span class="chip chip-gray sm">진단용 · 점수에 넣지 않음</span></div>
+        <p class="sub sm">출력 형식과 기본 규칙을 자동으로 검사해요. 위반해도 점수는 깎지 않지만, 출력이 깨지면 그 질문은 0점이에요.</p>
+        <div id="critRules" class="rules-grid"></div>
+      </section>
     </div>
   </div>
 </div>
@@ -217,8 +235,18 @@
     <b class="h15">API 키</b>
     <div class="key-box" id="keyBox">
       <div class="row gap10 center"><span class="chip" id="keyChip"></span><b id="keyMsg"></b></div>
-      <p class="sm">키는 화면에서 입력하거나 보여 주지 않아요. 바꾸려면 .env를 고친 뒤 다시 확인해요.</p>
-      <button class="btn sm" id="keyCheck">다시 확인</button>
+      <p class="sm">키는 저장한 뒤 다시 보여 주지 않아요. 바꾸려면 새 키를 붙여 넣고 저장해요.</p>
+      <div class="row gap8 center full-w hidden" id="keyEdit">
+        <input id="keyInput" class="input grow" type="password" autocomplete="off" spellcheck="false" placeholder="새 키를 붙여 넣으세요 (sk-로 시작)">
+        <button class="btn btn-primary sm" id="keySave">저장하고 확인</button>
+        <button class="btn sm" id="keyCancel">취소</button>
+      </div>
+      <p class="sm red b6 hidden" id="keyErr"></p>
+      <div class="row gap8 center" id="keyActs">
+        <button class="btn sm" id="keyChange">키 바꾸기</button>
+        <button class="btn sm" id="keyCheck">연결 다시 확인</button>
+        <span class="sub xs">키를 바꾸지 않고 연결만 확인해요</span>
+      </div>
     </div>
     <b class="h15">생성 모델 기본값</b>
     <select id="setModel" class="select"></select>

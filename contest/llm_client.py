@@ -29,7 +29,7 @@ class LLMClient:
     def complete(self, model: str, system: str, user: str, reasoning_effort: str | None = None,
                  json_mode: bool = True, max_output_tokens: int | None = None) -> dict:
         if not self.api_key:
-            raise LLMError("API 키가 없어요. 레포 폴더의 .env 파일에 OPENAI_API_KEY를 넣어 주세요.")
+            raise LLMError("API 키가 없어요. 화면의 시작 준비 카드나 설정 창에서 DM으로 받은 키를 저장해 주세요.")
         body, path = self._build(model, system, user, reasoning_effort, json_mode, max_output_tokens)
         t0 = time.time()
         resp = self._post(path, body)
@@ -44,19 +44,28 @@ class LLMClient:
             "latency_ms": latency,
         }
 
-    def ping(self) -> tuple[bool, str]:
-        """키가 살아 있는지 모델 목록 조회로 확인한다. 비용이 들지 않는다."""
-        if not self.api_key:
-            return False, "키 없음"
+    def check(self) -> int | None:
+        """키로 모델 목록을 조회해 HTTP 상태 코드를 돌려준다. 네트워크 오류면 None. 비용이 들지 않는다."""
         req = urllib.request.Request(self.base_url + "/models", method="GET",
                                      headers={"Authorization": f"Bearer {self.api_key}"})
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
-                return r.status == 200, "연결됨"
+                return r.status
         except urllib.error.HTTPError as e:
-            return False, "키 오류" if e.code in (401, 403) else f"HTTP {e.code}"
-        except (urllib.error.URLError, TimeoutError) as e:
-            return False, f"네트워크 오류: {e}"
+            return e.code
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return None
+
+    def ping(self) -> tuple[bool, str]:
+        """키가 살아 있는지 확인한다."""
+        if not self.api_key:
+            return False, "키 없음"
+        code = self.check()
+        if code == 200:
+            return True, "연결됨"
+        if code is None:
+            return False, "네트워크 오류"
+        return False, "키 오류" if code in (401, 403) else f"HTTP {code}"
 
     # ---------- internals ----------
     def _build(self, model, system, user, effort, json_mode, max_output_tokens):

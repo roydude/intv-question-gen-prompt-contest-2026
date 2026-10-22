@@ -303,7 +303,10 @@ def start_background(scope: str, case_ids: list[str], model: str, effort: str | 
         run = Run(scope, case_ids, model, effort)
         # 기록 전에 막을 상황이면 스레드를 띄우지 않고 바로 알린다.
         if not core.load_api_key():
-            raise RuntimeError("API 키가 없어요. 레포 폴더의 .env 파일에 OPENAI_API_KEY를 넣어 주세요.")
+            raise RuntimeError("API 키가 없어요. 화면의 시작 준비 카드나 설정 창에서 DM으로 받은 키를 저장해 주세요.")
+        block = core.change_block_message(core.submit_check(run.prompt_text))
+        if block:
+            raise RuntimeError(block)
         # 시작 기록(커밋)을 응답 전에 남긴다. 그래야 커밋 속 프롬프트가 이번 생성에 쓴 프롬프트와 같다.
         try:
             run.record_start()

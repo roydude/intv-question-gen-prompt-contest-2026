@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error((j && j.error) || `요청이 실패했어요 (${r.status})`);
+  if (!r.ok) throw new Error((j && (j.error || j.message)) || `요청이 실패했어요 (${r.status})`);
   return j;
 }
 function toast(msg) {
@@ -151,23 +151,25 @@ function updateEditorMeta() {
   renderDirty();
   scheduleChange();
 }
-/* ③의 v9.0.0 대비 바뀐 분량(제출 조건)은 서버가 계산한다 */
+/* ③의 v9.0.0 대비 바뀐 분량은 서버가 계산한다. 생성과 제출이 같은 기준(5%)을 쓴다 */
 function scheduleChange() {
-  const chip = $('edChange');
-  if (S.stage !== 'assignments') { chip.classList.add('hidden'); return; }
   clearTimeout(S.chgTimer);
   S.chgTimer = setTimeout(async () => {
     try { S.change = await api('/api/prompts/change', { id: 'assignments', text: S.current.assignments }); } catch { return; }
-    renderChange();
+    renderChange(); renderTop();
   }, 500);
+}
+function blockMsg(c) {
+  const need = `${Math.round(c.min * 100)}%`;
+  if (c.identical) return `③이 v9.0.0과 같아서 질문을 생성할 수 없어요. ${need} 이상 바꿔 주세요.`;
+  return `③ 바뀐 분량이 ${(c.ratio * 100).toFixed(1)}%예요. ${need} 이상 바꿔야 질문을 생성할 수 있어요. 공백·빈 줄 차이는 세지 않아요.`;
 }
 function renderChange() {
   const chip = $('edChange'); const c = S.change;
   if (!c || S.stage !== 'assignments') { chip.classList.add('hidden'); return; }
   const need = `${Math.round(c.min * 100)}%`;
-  if (c.identical) { chip.textContent = '바뀐 분량 0% · 이대로는 제출할 수 없어요'; chip.className = 'chip xs chip-orange'; }
-  else if (!c.ok) { chip.textContent = `바뀐 분량 ${pct(c.ratio)} · 제출하려면 ${need} 이상`; chip.className = 'chip xs chip-orange'; }
-  else { chip.textContent = `바뀐 분량 ${pct(c.ratio)} · 제출 가능`; chip.className = 'chip xs chip-green'; }
+  if (!c.ok) { chip.textContent = `바뀐 분량 ${c.identical ? '0%' : pct(c.ratio)} · 생성·제출하려면 ${need} 이상`; chip.className = 'chip xs chip-orange'; }
+  else { chip.textContent = `바뀐 분량 ${pct(c.ratio)} · 생성·제출 가능`; chip.className = 'chip xs chip-green'; }
   chip.title = '공백·빈 줄 차이는 세지 않아요';
 }
 function renderDirty() {
@@ -211,8 +213,14 @@ function renderTop() {
   $('remainChip').textContent = `남은 질문 ${u.remaining}/${u.limit}`;
   $('branchChip').textContent = st.git.branch ? `브랜치 ${st.git.branch}` : 'git 저장소 아님';
   const g = $('genBtn');
-  if (isRunning()) { const r = st.running; g.disabled = true; g.textContent = `생성 중 ${r.judgeDone}/${r.total}`; }
-  else { g.disabled = false; g.textContent = '질문 생성'; }
+  if (isRunning()) { const r = st.running; g.disabled = true; g.classList.remove('blocked'); g.textContent = `생성 중 ${r.judgeDone}/${r.total}`; }
+  else {
+    const notReady = !(st.branchOk && st.key.present);
+    const blocked = notReady || !!(S.change && !S.change.ok);
+    g.disabled = false; g.textContent = '질문 생성';
+    g.classList.toggle('blocked', blocked);
+    g.title = notReady ? '화면 맨 위 시작 준비를 먼저 마쳐 주세요' : (blocked ? blockMsg(S.change) : '');
+  }
 }
 function renderTabs() {
   const box = $('tabs'); box.innerHTML = '';
@@ -236,8 +244,6 @@ function renderBanners() {
   document.querySelectorAll('.banner[data-dyn]').forEach((el) => { bannerKeys.delete(el.dataset.key); el.remove(); });
   const st = S.state; const add = (text, tone, key, a, f) => { showBanner(text, tone, key, a, f); const el = document.querySelector(`.banner[data-key="${key}"]`); if (el) el.dataset.dyn = '1'; };
   if (!st.git.repo) add('git 저장소가 아니에요. 운영 레포를 클론한 폴더에서 실행해 주세요.', 'red', 'repo');
-  else if (!st.branchOk) add(`개인 브랜치가 아니에요(현재 ${st.git.branch}). Claude Code에서 /시작으로 ${st.branchPrefix}영문이름 브랜치를 만든 뒤 생성할 수 있어요.`, 'org', 'branch');
-  if (!st.key.present) add('API 키가 비어 있어요. 레포 폴더의 .env 파일에 OPENAI_API_KEY를 직접 넣은 뒤 화면을 새로 고쳐 주세요.', 'org', 'key');
   if (st.usage.error) add(st.usage.error, 'red', 'ledger');
   if (st.push && st.push.state === 'failed') add('실행 기록을 개인 브랜치에 올리지 못했어요. 다음 실행 때 다시 올려요.', 'org', 'push', '지금 다시 올리기', async () => { const r = await api('/api/push', {}); toast(r.message); refreshState(); });
 }
@@ -287,9 +293,65 @@ function renderCaseChips() {
   const box = $('caseChips'); box.innerHTML = '';
   S.cases.forEach((c) => { const b = document.createElement('button'); b.className = 'case-chip'; b.textContent = c.label; b.onclick = () => openCase(c.caseId); box.appendChild(b); });
 }
+/* ---------------- 시작 준비 카드 ---------------- */
+function setupDismissed() { try { return localStorage.getItem('contest.setupDone') === '1'; } catch { return false; } }
+function renderSetup(force) {
+  const st = S.state; const card = $('setupCard'); const err = S.setupErr || {};
+  const branchDone = !!st.branchOk; const keyDone = !!st.key.present && st.key.checked !== 'fail';
+  const all = branchDone && keyDone;
+  if (!st.git.repo || (all && setupDismissed())) { card.classList.add('hidden'); S.setupSig = null; return; }
+  const sig = JSON.stringify([branchDone, keyDone, st.git.branch, st.key.last4, err.branch, err.key]);
+  if (!force && sig === S.setupSig) return;
+  S.setupSig = sig;
+  const left = [branchDone, keyDone].filter((x) => !x).length;
+  const chip = (t, c) => `<span class="chip xs ${c}">${t}</span>`;
+  const b = branchDone
+    ? `<div class="su-step done"><div class="t">① 개인 브랜치 ${chip('완료', 'chip-done')}</div><b class="h15">${esc(st.git.branch)}</b><p class="sub xs">생성 기록이 이 브랜치에 쌓이고 원격에 자동으로 올라가요.</p></div>`
+    : `<div class="su-step ${err.branch ? 'error' : 'pending'}"><div class="t">① 개인 브랜치 ${chip(err.branch ? '확인 필요' : '필요', err.branch ? 'chip-red' : 'chip-orange')}</div>
+        <p class="sub xs">실행 기록을 올릴 내 브랜치예요. GitHub 로그인 이름으로 만들어요.</p>
+        <div class="row gap8 center"><label class="su-field ${err.branch ? 'error' : ''}"><span>${esc(st.branchPrefix)}</span><input id="suName" value="${esc(st.setup.suggested || '')}" placeholder="영문 이름" spellcheck="false" autocomplete="off"></label><button class="btn btn-primary sm" id="suBranch">만들기</button></div>
+        ${err.branch ? `<p class="red xs b6">${esc(err.branch)}</p>` : '<button class="link-btn" id="suRename" style="align-self:flex-start">다른 이름으로 하기</button>'}</div>`;
+  const k = keyDone
+    ? `<div class="su-step done"><div class="t">② API 키 ${chip('완료', 'chip-done')}</div><b class="h15">연결됨 · 끝자리 ${esc(st.key.last4 || '')}</b><p class="sub xs">이 PC의 .env에 저장했어요. 바꾸려면 설정 창에서 키 바꾸기를 눌러요.</p></div>`
+    : `<div class="su-step ${err.key ? 'error' : 'pending'}"><div class="t">② API 키 ${chip(err.key ? '확인 필요' : '필요', err.key ? 'chip-red' : 'chip-orange')}</div>
+        <p class="sub xs">DM으로 받은 키를 붙여 넣어요. 이 PC의 .env에만 저장되고 화면과 대화에 다시 보이지 않아요.</p>
+        <div class="row gap8 center"><label class="su-field ${err.key ? 'error' : ''}"><input id="suKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-로 시작하는 키를 붙여 넣으세요"></label><button class="btn btn-primary sm" id="suKeySave">저장하고 확인</button></div>
+        ${err.key ? `<p class="red xs b6">${esc(err.key)}</p>` : ''}</div>`;
+  const d = all
+    ? `<div class="su-step done"><div class="t">③ 질문 생성 ${chip('완료', 'chip-done')}</div><b class="h15">준비가 끝났어요</b><p class="sub xs">③ 프롬프트를 5% 이상 고친 뒤 질문 생성을 눌러요.</p></div>`
+    : `<div class="su-step wait"><div class="t muted">③ 질문 생성 ${chip('대기', 'chip-gray')}</div><p class="muted xs">①②가 끝나면 편집기에서 질문을 생성할 수 있어요.</p></div>`;
+  card.innerHTML = `<div class="su-head"><b class="h16">시작 준비</b>${left ? chip(`${left}단계 남았어요`, 'chip-orange') : chip('준비 끝', 'chip-green')}
+    <span class="sub sm grow">이 PC에서 한 번만 하면 돼요</span>${all ? '<button class="btn btn-ghost sm" id="suClose">카드 닫기</button>' : ''}</div>
+    <div class="su-steps">${b}${k}${d}</div>`;
+  card.classList.remove('hidden');
+  const on = (id, ev, fn) => { const el = $(id); if (el) el[ev] = fn; };
+  on('suBranch', 'onclick', setupBranch);
+  on('suName', 'onkeydown', (e) => { if (e.key === 'Enter') setupBranch(); });
+  on('suRename', 'onclick', () => { const i = $('suName'); i.focus(); i.select(); });
+  on('suKeySave', 'onclick', setupKey);
+  on('suKey', 'onkeydown', (e) => { if (e.key === 'Enter') setupKey(); });
+  on('suClose', 'onclick', () => { try { localStorage.setItem('contest.setupDone', '1'); } catch { /* 다음에 다시 보임 */ } card.classList.add('hidden'); });
+  if (S.diff) setTimeout(() => S.diff.layout(), 0);
+}
+async function setupBranch() {
+  const name = $('suName').value.trim(); $('suBranch').disabled = true;
+  try { const r = await api('/api/setup/branch', { name }); S.setupErr = { ...(S.setupErr || {}), branch: null }; toast(`${r.branch} · ${r.message}`); }
+  catch (e) { S.setupErr = { ...(S.setupErr || {}), branch: e.message }; }
+  await refreshState(); renderSetup(true);
+}
+async function setupKey() {
+  const input = $('suKey'); const key = input.value;
+  if (!key.trim()) { input.focus(); return; }
+  $('suKeySave').disabled = true;
+  try { const r = await api('/api/key/save', { key }); S.setupErr = { ...(S.setupErr || {}), key: null }; toast(r.message); }
+  catch (e) { S.setupErr = { ...(S.setupErr || {}), key: e.message }; }
+  input.value = '';
+  await refreshState(); renderSetup(true);
+}
+
 async function refreshState() {
   try { S.state = await api('/api/state'); } catch { return; }
-  renderTop(); renderPanel(); renderBanners();
+  renderTop(); renderPanel(); renderBanners(); renderSetup();
   if (isRunning() && !S.poll) startPolling();
 }
 
@@ -334,14 +396,11 @@ async function renderGen() {
   $('sumRemain').textContent = `${after} / ${st.usage.limit}`; $('sumRemain').className = after < 0 ? 'red' : 'blue';
   $('genDirtyWarn').classList.toggle('hidden', !isDirty());
   $('genStart').textContent = isDirty() ? '저장하고 생성하기' : '생성하기';
-  const c = S.genChange; const cr = $('genChange');
-  if (c && c.identical) { cr.textContent = '③이 v9.0.0과 같아요. 기준선과 비슷한 점수가 나오고, 이대로는 제출할 수 없어요.'; cr.className = 'warn-row'; }
-  else if (c && !c.ok) { cr.textContent = `③ 바뀐 분량 ${pct(c.ratio)} · 제출하려면 ${Math.round(c.min * 100)}% 이상 바꿔야 해요. 생성은 할 수 있어요.`; cr.className = 'warn-row info'; }
-  else cr.className = 'warn-row hidden';
   let err = '';
   if (!st.git.repo) err = 'git 저장소에서만 생성할 수 있어요.';
-  else if (!st.branchOk) err = `개인 브랜치(${st.branchPrefix}영문이름)에서만 생성할 수 있어요. Claude Code에서 /시작을 먼저 해 주세요.`;
-  else if (!st.key.present) err = 'API 키가 비어 있어요. .env 파일에 OPENAI_API_KEY를 넣어 주세요.';
+  else if (!st.branchOk) err = `개인 브랜치(${st.branchPrefix}영문이름)에서만 생성할 수 있어요. 시작 준비 카드에서 브랜치를 먼저 만들어 주세요.`;
+  else if (!st.key.present) err = 'API 키가 비어 있어요. 시작 준비 카드나 설정 창에서 DM으로 받은 키를 저장해 주세요.';
+  else if (S.genChange && !S.genChange.ok) err = blockMsg(S.genChange);
   else if (n === 0) err = '실행할 케이스를 하나 이상 골라 주세요.';
   else if (after < 0) err = `남은 질문이 ${st.usage.remaining}개라 ${q}개를 만들 수 없어요.`;
   $('genStart').disabled = !!err;
@@ -354,11 +413,7 @@ async function renderGen() {
   } catch { S.genEst = null; $('sumTime').textContent = '기준선 실측 후 표시'; }
 }
 async function startGen() {
-  if (S.genChange && S.genChange.identical) {
-    const n = S.genScope === 'all' ? S.cases.length : S.genPick.size;
-    const ok = await confirmBox('v9.0.0과 같은 프롬프트예요', `기준선과 비슷한 점수가 나오고 남은 질문이 ${n * S.state.qpc}개 줄어요. 환경을 확인하려는 거라면 그대로 생성해도 돼요. 생성할까요?`, '생성');
-    if (!ok) return;
-  }
+  if (S.genChange && !S.genChange.ok) return;
   if (isDirty() && !(await saveAll())) return;
   const m = $('genModel').value; const model = m === '__custom' ? $('genCustomModel').value.trim() : m;
   const body = { scope: S.genScope, cases: [...S.genPick], model, effort: $('genEffort').value };
@@ -532,7 +587,8 @@ function renderResult(r) {
   const head = '<div class="tr head"><span>케이스</span><span>지원자</span><span>평가 주제</span><span>점수 · 기준</span><span>실패 유형</span><span>규칙 진단</span><span></span></div>';
   $('rTable').innerHTML = head + r.items.map((c, i) => caseRow(c, i === 0)).join('');
   $('rTable').querySelectorAll('[data-toggle]').forEach((b) => { b.onclick = () => toggleRow(b.dataset.toggle); });
-  $('rTable').querySelectorAll('[data-case]').forEach((b) => { b.onclick = () => openCase(b.dataset.case); });
+  $('rTable').querySelectorAll('[data-drawer]').forEach((b) => { b.onclick = () => toggleDrawer(b.dataset.drawer); });
+  if (S.drawerCase) markDrawer();
   $('rTable').querySelectorAll('[data-raw]').forEach((b) => { b.onclick = () => { $(`raw-${b.dataset.raw}`).classList.toggle('hidden'); }; });
 }
 function caseRow(c, open) {
@@ -542,8 +598,10 @@ function caseRow(c, open) {
   const rules = !ran || c.genError ? '-' : (c.checks.failed?.length ? c.checks.failed.map((k) => `${k} ×1`).join(' · ') : '위반 0');
   const avg = c.genError ? '실패' : (c.avg ?? '-');
   const b = c.baselineAvg ?? (S.state.baseline.caseAvg || {})[c.caseId];
+  const drIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg>';
   return `<div class="tr ${open ? 'open' : ''}" id="row-${c.caseId}">
-    <b>${esc(c.label)}</b><span class="sub">${esc(c.who)}</span><span>${esc(c.category)}</span>
+    <span class="case-cell"><b>${esc(c.label)}</b><button class="dr-btn" data-drawer="${c.caseId}" title="공고·지원자 정보 보기">${drIcon}</button></span>
+    <span class="sub">${esc(c.who)}</span><span>${esc(c.category)}</span>
     <span><b class="${scoreClass(c.avg)}">${avg}</b>${b != null ? `<span class="muted xs"> · 기준 ${b}</span>` : ''}</span>
     <span class="sm b5 ${ct === '없음' || !ran ? 'muted' : 'org'}">${ran ? ct : '-'}</span>
     <span class="sm b5 ${rules === '위반 0' || rules === '-' ? 'muted' : 'org'}">${rules}</span>
@@ -567,11 +625,51 @@ function qcard(c, it, i) {
   return `<div class="qcard">
     <div class="row between center gap12"><span class="sm b6 sub">평가 요소 ${i + 1} · ${esc(it.itemName)}</span><b class="h22 ${scoreClass(it.total)}">${it.total ?? '-'}</b></div>
     ${it.note ? `<div class="warn-row">${esc(it.note)}</div>` : ''}
-    <span class="lbl blue">이번 질문</span><div class="q">${esc(it.question || '(질문 없음)')}</div>
-    <span class="lbl muted">v9.0.0 질문</span><div class="sub sm">${esc(it.baselineQuestion || '기준선 생성 후 표시')}</div>
+    <div class="qbox"><span class="lbl">이번 질문</span><div class="q">${esc(it.question || '(질문 없음)')}</div></div>
+    <span class="base-lbl">v9.0.0 질문 (비교용)</span><div class="base-q">${esc(it.baselineQuestion || '기준선 생성 후 표시')}</div>
     ${it.points ? `<div class="wrap" style="margin-top:0">${chips}${fail}</div>` : ''}
     ${reasons.J2 ? `<div class="reason">근거 · ${esc(reasons.J2)}${others ? `<ul>${others}</ul>` : ''}</div>` : ''}
-    <div class="case-foot">${ruleLine}<button class="link-btn" data-case="${c.caseId}">공고·지원자 정보 보기 →</button></div></div>`;
+    ${ruleLine ? `<div class="case-foot">${ruleLine}</div>` : ''}</div>`;
+}
+
+/* 결과 화면의 공고·지원자 정보 서랍: 질문을 보면서 같은 케이스의 이력과 공고를 함께 본다 */
+function toggleDrawer(caseId) { if (S.drawerCase === caseId) closeDrawer(); else openDrawer(caseId); }
+function markDrawer() {
+  document.querySelectorAll('.dr-btn').forEach((b) => b.classList.toggle('on', b.dataset.drawer === S.drawerCase));
+}
+function openDrawer(caseId) {
+  const c = S.cases.find((x) => x.caseId === caseId); if (!c) return;
+  S.drawerCase = caseId;
+  const p = c.position; const li = (arr) => `<ul>${(arr || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  const careers = (c.careers || []).map((k) => `<div class="h">경력 · ${esc(k.company)} ${esc(k.jobTitle || '')} ${esc(k.employmentType || '')} · ${esc(k.period || '')}</div><div>${esc(k.summaryLine || '')}</div>`).join('');
+  const projects = (c.projects || []).map((k) => `<div class="h">프로젝트 · ${esc(k.name)} · ${esc(k.organization || '')} · ${esc(k.teamType || '')}</div><div>${esc(k.description || '')}</div>`).join('');
+  const acts = (c.activities || []).map((k) => `<div class="h">활동 · ${esc(k.name)} · ${esc(k.type || '')}</div><div>${esc(k.description || '')}</div>`).join('');
+  const notes = (c.notes || []).map((k) => `<div>${esc(k.content || '')}</div>`).join('');
+  $('drLabel').textContent = c.label; $('drWho').textContent = c.who;
+  $('drSub').textContent = `${c.caseId} · 질문을 보면서 지원자 이력과 공고를 함께 확인해요. 골든셋을 보며 프롬프트를 맞추는 것은 지양해요`;
+  $('drBody').innerHTML = `
+    <section class="dr-sec"><div class="row gap8 center"><span class="chip chip-dark xs">지원자</span><b class="h16">지원자 이력</b></div>
+      <div class="b5">${esc(c.persona)}</div>${careers}${projects}${acts}${notes ? `<div class="h">메모</div>${notes}` : ''}
+      ${c.resume ? `<details><summary>이력서 요약 보기</summary><div style="margin-top:8px">${esc(c.resume)}</div></details>` : ''}</section>
+    <div class="divider"></div>
+    <section class="dr-sec"><div class="row gap8 center"><span class="chip chip-dark xs">공고</span><b class="h16">공고 · ${esc(p.positionName || c.job)}</b></div>
+      <div class="h">주요 업무</div>${li(p.jobDescription)}<div class="h">자격 요건</div>${li(p.requirements)}<div class="h">우대 사항</div>${li(p.preferredQualifications)}</section>
+    <div class="divider"></div>
+    <section class="dr-sec"><div class="row gap8 center"><span class="chip chip-solid-blue xs">평가 주제</span><b class="h16">${esc(c.category.name)}</b></div>
+      <div>${esc(c.category.definition)}</div>
+      ${c.items.map((it, i) => `<div class="dr-item"><b>요소 ${i + 1} · ${esc(it.name)}</b><div class="sub xs">${esc(it.definition)}</div></div>`).join('')}
+      ${c.forbidden?.length ? `<b class="org">질문에 쓰면 안 되는 말 · ${c.forbidden.map(esc).join(' · ')}</b>` : ''}</section>`;
+  $('drBody').scrollTop = 0;
+  $('caseDrawer').classList.remove('hidden'); document.body.classList.add('drawer-open');
+  markDrawer();
+  const row = $(`row-${caseId}`);
+  if (row && !row.classList.contains('open')) toggleRow(caseId);
+  if (row) row.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+function closeDrawer() {
+  S.drawerCase = null;
+  $('caseDrawer').classList.add('hidden'); document.body.classList.remove('drawer-open');
+  markDrawer();
 }
 
 /* ---------------- 창: 기준·설정·케이스 ---------------- */
@@ -586,11 +684,15 @@ function openSettings() {
   const st = S.state;
   const k = st.key; const box = $('keyBox');
   let chip; let msg; let cls;
-  if (!k.present) { chip = ['키 없음', 'chip-red']; msg = '.env 파일에 키가 비어 있어요'; cls = 'bad'; }
-  else if (k.checked === 'ok') { chip = ['연결됨', 'chip-solid-blue']; msg = '.env 파일에서 읽었어요'; cls = 'ok'; }
-  else if (k.checked === 'fail') { chip = ['확인 실패', 'chip-red']; msg = k.message || '키를 확인해 주세요'; cls = 'bad'; }
-  else { chip = ['읽음', 'chip-white']; msg = '.env 파일에서 읽었어요 · 다시 확인으로 연결을 점검해요'; cls = ''; }
+  const saved = `이 PC의 .env에 저장된 키 · 끝자리 ${k.last4 || ''}`;
+  if (!k.present) { chip = ['키 없음', 'chip-red']; msg = '.env에 키가 없어요. 아래에 붙여 넣어 주세요'; cls = 'bad'; }
+  else if (k.checked === 'ok') { chip = ['연결됨', 'chip-solid-blue']; msg = saved; cls = 'ok'; }
+  else if (k.checked === 'fail') { chip = ['확인 실패', 'chip-red']; msg = `${saved} · ${k.message || '키를 확인해 주세요'}`; cls = 'bad'; }
+  else { chip = ['저장됨', 'chip-white']; msg = saved; cls = ''; }
   $('keyChip').textContent = chip[0]; $('keyChip').className = `chip sm ${chip[1]}`; $('keyMsg').textContent = msg; box.className = `key-box ${cls}`;
+  $('keyEdit').classList.toggle('hidden', !!k.present); $('keyActs').classList.toggle('hidden', !k.present);
+  $('keyCancel').classList.toggle('hidden', !k.present);
+  $('keyErr').classList.add('hidden'); $('keyInput').value = '';
   const ms = $('setModel'); ms.innerHTML = '';
   Object.keys(st.models).forEach((m) => ms.add(new Option(m, m)));
   ms.value = st.models[st.local.defaultModel] ? st.local.defaultModel : Object.keys(st.models)[0];
@@ -608,6 +710,19 @@ async function saveSettings() {
   const eff = $('setEffort').querySelector('.on')?.textContent;
   try { S.state.local = await api('/api/settings', { defaultModel: $('setModel').value, defaultEffort: eff }); toast('기본값을 저장했어요'); closeModal('settingsModal'); }
   catch (e) { toast(e.message); }
+}
+async function saveKeyFromSettings() {
+  const key = $('keyInput').value;
+  if (!key.trim()) { $('keyInput').focus(); return; }
+  $('keySave').disabled = true;
+  try {
+    const r = await api('/api/key/save', { key });
+    toast(r.message); $('keySave').disabled = false;
+    await refreshState(); renderSetup(true); openSettings();
+  } catch (e) {
+    $('keySave').disabled = false; $('keyInput').value = '';
+    $('keyErr').textContent = e.message; $('keyErr').classList.remove('hidden');
+  }
 }
 async function checkKey() {
   $('keyCheck').disabled = true;
@@ -646,7 +761,7 @@ function route(view, push = true) {
   document.body.classList.toggle('on-edit', view === 'edit'); document.body.classList.toggle('on-result', view === 'result');
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   if (push) history.pushState({ view }, '', view === 'result' ? '/result' : '/');
-  if (view === 'result') { loadResult(); if (SN.mode === 'done') hideSnack(); }
+  if (view === 'result') { loadResult(); if (SN.mode === 'done') hideSnack(); } else closeDrawer();
   if (view === 'edit' && S.diff) setTimeout(() => S.diff.layout(), 0);
 }
 function bind() {
@@ -658,7 +773,11 @@ function bind() {
   document.querySelectorAll('.modal-back').forEach((m) => m.addEventListener('mousedown', (e) => { if (e.target === m && m.id !== 'confirmModal') m.classList.add('hidden'); }));
   window.addEventListener('popstate', () => route(location.pathname === '/result' ? 'result' : 'edit', false));
   window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
-  document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveAll(); } });
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveAll(); }
+    if (e.key === 'Escape' && S.drawerCase && document.querySelectorAll('.modal-back:not(.hidden)').length === 0) closeDrawer();
+  });
+  $('drClose').onclick = closeDrawer;
   $('saveBtn').onclick = () => saveAll();
   $('revertBtn').onclick = revertStage;
   $('genBtn').onclick = () => openGen();
@@ -691,10 +810,10 @@ function bind() {
   $('openSettings').onclick = openSettings;
   $('setSave').onclick = saveSettings;
   $('keyCheck').onclick = checkKey;
-  $('critSeg').querySelectorAll('button').forEach((b) => { b.onclick = () => {
-    $('critSeg').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
-    $(b.dataset.anchor).scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }; });
+  $('keySave').onclick = saveKeyFromSettings;
+  $('keyInput').onkeydown = (e) => { if (e.key === 'Enter') saveKeyFromSettings(); };
+  $('keyChange').onclick = () => { $('keyEdit').classList.remove('hidden'); $('keyActs').classList.add('hidden'); $('keyInput').focus(); };
+  $('keyCancel').onclick = () => { $('keyEdit').classList.add('hidden'); $('keyActs').classList.remove('hidden'); $('keyInput').value = ''; $('keyErr').classList.add('hidden'); };
   if (window.ResizeObserver) new ResizeObserver(([en]) => { $('edCard').classList.toggle('narrow', en.contentRect.width < 1100); }).observe($('edCard'));
 }
 async function init() {
@@ -705,7 +824,7 @@ async function init() {
   $('brandTitle').textContent = S.state.title;
   for (const id of Object.keys(S.prompts)) { S.saved[id] = S.prompts[id].mine; S.current[id] = S.prompts[id].mine; }
   $('savedText').textContent = '저장된 프롬프트를 불러왔어요';
-  renderTop(); renderBanners(); renderTabs(); renderPanel(); renderCaseChips(); renderCriteria(); applyPanel();
+  renderTop(); renderBanners(); renderTabs(); renderPanel(); renderCaseChips(); renderCriteria(); applyPanel(); renderSetup(true);
   setupEditor();
   route(location.pathname === '/result' ? 'result' : 'edit', false);
   setInterval(refreshState, 5000);

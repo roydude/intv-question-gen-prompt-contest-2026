@@ -37,7 +37,8 @@ def _state() -> dict:
         "branchOk": (info.get("branch") or "").startswith(cfg["branch_prefix"]),
         "branchPrefix": cfg["branch_prefix"],
         "usage": u,
-        "key": {"present": bool(key), "checked": _KEY_STATE["state"], "message": _KEY_STATE["message"]},
+        "key": {"present": bool(key), "checked": _KEY_STATE["state"], "message": _KEY_STATE["message"], "last4": core.key_last4()},
+        "setup": {"suggested": core.suggest_branch_name()},
         "local": core.local_settings(),
         "running": run.snapshot() if run is not None else None,
         "latest": results[-1] if results else None,
@@ -94,6 +95,16 @@ class Handler(BaseHTTPRequestHandler):
     def _host_ok(self) -> bool:
         host = (self.headers.get("Host") or "").split(":")[0]
         return host in ("127.0.0.1", "localhost")
+
+    def _post_ok(self) -> bool:
+        """다른 웹페이지가 이 서버로 요청을 보내지 못하게 막는다(출처·JSON만)."""
+        port = self.server.server_port
+        origin = self.headers.get("Origin")
+        if origin and origin not in (f"http://localhost:{port}", f"http://127.0.0.1:{port}"):
+            return False
+        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+            return False
+        return (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() == "application/json"
 
     def _json(self, obj, code: int = 200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -162,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -------------------------------------------------- POST
     def do_POST(self):
-        if not self._host_ok():
+        if not self._host_ok() or not self._post_ok():
             self.send_error(403)
             return
         path = urlparse(self.path).path
@@ -207,6 +218,14 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = engine.make_client().ping()
             _KEY_STATE.update(state="ok" if ok else "fail", message=msg)
             return self._json({"ok": ok, "message": msg})
+        if path == "/api/setup/branch":
+            res = core.ensure_branch(b.get("name") or core.suggest_branch_name())
+            return self._json(res, 200 if res["ok"] else 400)
+        if path == "/api/key/save":
+            res = core.try_save_key(b.get("key"))
+            if res.get("saved"):
+                _KEY_STATE.update(state="ok" if res.get("code") in (None, 200) and "연결됨" in res["message"] else None, message=res["message"])
+            return self._json(res, 200 if res["ok"] else 400)
         if path == "/api/push":
             return self._json(recorder.push_now())
         return self._json({"error": "없는 주소예요."}, 404)
