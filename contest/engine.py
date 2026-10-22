@@ -60,6 +60,7 @@ class Run:
         self.progress = {c["caseId"]: {"gen": "wait", "check": "wait", "judge": "wait"} for c in self.cases}
         self.result_rel = None
         self.result = None
+        self.recorded = False  # 시작 기록을 이미 남겼는지
 
     # ------------------------------------------------------------------
     def snapshot(self) -> dict:
@@ -137,14 +138,20 @@ class Run:
         self.records[cid] = rec
 
     # ------------------------------------------------------------------
+    def record_start(self) -> None:
+        recorder.record_start({"runId": self.run_id, "scope": self.scope, "cases": self.case_ids,
+                               "questions": self.questions, "model": self.model, "effort": self.effort,
+                               "promptUsed": core.sha256_text(self.prompt_text)})
+        self.recorded = True
+
+    # ------------------------------------------------------------------
     def execute(self) -> dict:
         self.status = "running"
-        self.started_at = recorder.now_iso()
+        self.started_at = self.started_at or recorder.now_iso()
         t0 = time.time()
-        if self.record:
+        if self.record and not self.recorded:
             try:
-                recorder.record_start({"runId": self.run_id, "scope": self.scope, "cases": self.case_ids,
-                                       "questions": self.questions, "model": self.model, "effort": self.effort})
+                self.record_start()
             except recorder.RecordError as e:
                 self.status, self.message = "error", str(e)
                 return self.snapshot()
@@ -233,6 +240,7 @@ class Run:
                 })
             vals = [x["total"] for x in items_out if x["total"] is not None]
             cases_out.append({
+                "baselineAvg": baseline["caseAvg"].get(cid),
                 "caseId": cid,
                 "label": core.case_label(case, self.positions),
                 "who": case.get("scenarioLabel", ""),
@@ -247,6 +255,7 @@ class Run:
                 "outputText": rec.get("outputText"),
             })
         full = self.scope == "all" and not stopped and not judge_missing and not infra_error
+        same = [baseline["caseAvg"][c] for c in self.case_ids if c in baseline["caseAvg"]]
         eval_score = round(sum(all_totals) / len(all_totals), 1) if full and all_totals else None
         reason = None
         if self.scope != "all":
@@ -270,6 +279,7 @@ class Run:
             "questionAvg": round(sum(all_totals) / len(all_totals), 1) if all_totals else None,
             "evalScore": eval_score,
             "evalNote": reason,
+            "baselineSame": round(sum(same) / len(same), 1) if same and len(same) == len(self.case_ids) else None,
             "dimAvg": {k: (round(sum(v) / len(v), 1) if v else None) for k, v in dim_vals.items()},
             "failCounts": dict(fail_counts.most_common()),
             "ruleFails": dict(rule_fails.most_common()),
@@ -294,11 +304,13 @@ def start_background(scope: str, case_ids: list[str], model: str, effort: str | 
         # 기록 전에 막을 상황이면 스레드를 띄우지 않고 바로 알린다.
         if not core.load_api_key():
             raise RuntimeError("API 키가 없어요. 레포 폴더의 .env 파일에 OPENAI_API_KEY를 넣어 주세요.")
+        # 시작 기록(커밋)을 응답 전에 남긴다. 그래야 커밋 속 프롬프트가 이번 생성에 쓴 프롬프트와 같다.
         try:
-            recorder.preflight(run.questions)
+            run.record_start()
         except recorder.RecordError as e:
             raise RuntimeError(str(e)) from e
         run.status = "running"
+        run.started_at = recorder.now_iso()
         CURRENT["run"] = run
     threading.Thread(target=run.execute, daemon=True).start()
     return run
@@ -314,6 +326,7 @@ def list_results() -> list[dict]:
         out.append({"runId": d.get("runId"), "scope": d.get("scope"), "evalScore": d.get("evalScore"), "file": f"runs/{p.name}",
                     "finishedAt": d.get("finishedAt"), "durationSec": d.get("durationSec"), "cases": len(d.get("cases") or []),
                     "questionAvg": d.get("questionAvg"), "dimAvg": d.get("dimAvg"), "failCounts": d.get("failCounts"),
+                    "baselineSame": d.get("baselineSame"), "caseLabels": [c.get("label") for c in d.get("items") or []],
                     "ruleFails": d.get("ruleFails"), "model": d.get("model"), "effort": d.get("effort"), "head": d.get("head"),
                     "status": d.get("status")})
     out.sort(key=lambda x: x.get("finishedAt") or "")

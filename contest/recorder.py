@@ -163,6 +163,7 @@ def record_start(run: dict) -> dict:
             "effort": run["effort"],
             "judgeModel": core.CFG["judge"]["model"],
             "prompts": core.prompt_hashes(),
+            "promptUsed": run.get("promptUsed"),
             "code": core.code_hash(),
         })
         _commit(f"기록: 실행 {run['runId']} 시작 · 질문 {run['questions']}개", ["runs", "prompts"])

@@ -45,6 +45,7 @@ def _state() -> dict:
         "baseline": {k: v for k, v in core.load_baseline().items() if k != "questions"},
         "push": dict(recorder.PUSH_STATE),
         "workers": cfg.get("workers", 5),
+        "submit": core.submit_check(),
     }
 
 
@@ -171,11 +172,12 @@ class Handler(BaseHTTPRequestHandler):
             text = b.get("text")
             if sid not in core.chain_by_id() or not isinstance(text, str):
                 return self._json({"error": "저장할 프롬프트를 찾지 못했어요."}, 400)
-            run = engine.CURRENT["run"]
-            if run is not None and run.status == "running":
-                return self._json({"error": "생성 중에는 프롬프트를 고칠 수 없어요."}, 409)
+            # 생성 중에도 저장할 수 있다. 진행 중인 생성은 시작할 때 읽은 프롬프트를 쓴다.
             core.write_prompt(sid, text)
             return self._json({"ok": True, "formatChanged": core.format_changes(sid, text)})
+        if path == "/api/prompts/change":
+            text = b.get("text")
+            return self._json(core.submit_check(text if isinstance(text, str) else None))
         if path == "/api/run":
             scope = b.get("scope") or "all"
             model = (b.get("model") or "").strip()

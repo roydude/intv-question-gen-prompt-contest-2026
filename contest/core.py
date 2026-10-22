@@ -1,9 +1,11 @@
 """경로·설정·데이터 로딩과 git 보조 함수."""
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -130,12 +132,52 @@ def format_changes(stage_id: str, text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# v9.0.0 대비 바뀐 분량 (제출 조건)
+# ---------------------------------------------------------------------------
+def _norm_lines(text: str) -> list[str]:
+    """공백·빈 줄 차이는 세지 않도록 줄마다 공백을 하나로 줄이고 빈 줄을 뺀다."""
+    out = []
+    for line in text.splitlines():
+        n = re.sub(r"\s+", " ", line).strip()
+        if n:
+            out.append(n)
+    return out
+
+
+def change_ratio(stage_id: str = "assignments", text: str | None = None) -> float:
+    """v9.0.0 대비 바뀐 글자 수 ÷ v9.0.0 글자 수. 줄 단위로 바뀐 곳을 찾고, 바뀐 줄 묶음 안에서는 글자 단위로 센다."""
+    base = _norm_lines(read_prompt(stage_id, baseline=True))
+    mine = _norm_lines(text if text is not None else read_prompt(stage_id))
+    if base == mine:
+        return 0.0
+    total = max(1, sum(len(x) for x in base))
+    changed = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, base, mine, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        a, b = "\n".join(base[i1:i2]), "\n".join(mine[j1:j2])
+        if not a or not b:
+            changed += len(a) + len(b)
+            continue
+        for t2, a1, a2, b1, b2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            if t2 != "equal":
+                changed += max(a2 - a1, b2 - b1)
+    return changed / total
+
+
+def submit_check(text: str | None = None) -> dict:
+    ratio = change_ratio("assignments", text)
+    need = float(CFG.get("submit_min_change", 0.05))
+    return {"ratio": round(ratio, 4), "min": need, "identical": ratio == 0, "ok": ratio >= need}
+
+
+# ---------------------------------------------------------------------------
 # 기준선 (v9.0.0)
 # ---------------------------------------------------------------------------
 def load_baseline() -> dict:
     res_p = BASELINE_DIR / "results.json"
     sample_p = BASELINE_DIR / "v900_questions.json"
-    out = {"ready": False, "mean": None, "spread": None, "threshold": None, "questions": {}, "secPerCase": None}
+    out = {"ready": False, "mean": None, "spread": None, "threshold": None, "questions": {}, "secPerCase": None, "caseAvg": {}}
     if sample_p.exists():
         out["questions"] = json.loads(sample_p.read_text(encoding="utf-8")).get("questions", {})
     if res_p.exists():
@@ -147,6 +189,7 @@ def load_baseline() -> dict:
         if runs and runs[0].get("questions"):
             out["questions"] = runs[0]["questions"]
         out["secPerCase"] = r.get("secPerCase")
+        out["caseAvg"] = r.get("caseAvg") or {}
     return out
 
 

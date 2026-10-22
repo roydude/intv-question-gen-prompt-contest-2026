@@ -266,10 +266,15 @@ def cmd_submit(args) -> int:
         return 1
     mine, base = core.read_prompt("assignments"), core.read_prompt("assignments", baseline=True)
     add, rem = _diff_counts(base, mine)
-    if add == 0 and rem == 0:
-        _p("  ⚠ ③ 질문 생성 프롬프트가 v9.0.0과 같아요. 그대로 제출하면 패널티 대상이에요.")
-    else:
-        _p(f"  ③ 변경      v9.0.0 대비 +{add}줄 −{rem}줄")
+    sc = core.submit_check(mine)
+    pct = min(sc["ratio"], 1) * 100
+    if sc["identical"]:
+        _p("  ✗ ③ 질문 생성 프롬프트가 v9.0.0과 같아서 제출할 수 없어요.")
+        return 1
+    if not sc["ok"]:
+        _p(f"  ✗ ③이 v9.0.0과 {pct:.1f}%만 달라요. {sc['min'] * 100:.0f}% 이상 바꿔야 제출할 수 있어요. (공백·빈 줄 차이는 세지 않아요)")
+        return 1
+    _p(f"  ③ 변경      v9.0.0 대비 +{add}줄 −{rem}줄 · 바뀐 분량 {pct:.1f}%{' 이상' if sc['ratio'] >= 1 else ''}")
     fmt = core.format_changes("assignments", mine)
     if fmt:
         _p("  ⚠ 입력·출력 형식 영역이 바뀌었어요: " + ", ".join(fmt))
@@ -291,7 +296,7 @@ def cmd_submit(args) -> int:
         return 1
     # PR
     title = f"[제출] {branch.split('/', 1)[1]}"
-    body = (f"- 브랜치: {branch}\n- 사용한 질문: {u['used']} / {u['limit']}\n- ③ 변경: v9.0.0 대비 +{add}줄 −{rem}줄\n"
+    body = (f"- 브랜치: {branch}\n- 사용한 질문: {u['used']} / {u['limit']}\n- ③ 변경: v9.0.0 대비 +{add}줄 −{rem}줄 · 바뀐 분량 {pct:.1f}%\n"
             f"- 최근 연습 평가 점수: {full[-1]['evalScore'] if full else '없음'}\n- 코드 지문: {core.code_hash()[:16]}\n\n"
             "마감 시점 이 PR의 마지막 커밋이 제출본입니다. 머지하지 않습니다.")
     if shutil.which("gh") and subprocess.run(["gh", "auth", "status"], capture_output=True).returncode == 0:

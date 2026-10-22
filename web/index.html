@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body class="on-edit">
 <header class="topbar">
   <div class="tb-left">
     <div class="brand"><b id="brandTitle">잡다 프롬프트 콘테스트</b><span class="chip chip-gray sm">로컬</span></div>
@@ -17,7 +17,6 @@
     </nav>
   </div>
   <div class="tb-right">
-    <button id="runChip" class="chip chip-blue hidden" title="진행 상태 보기"></button>
     <span id="deadlineChip" class="chip chip-orange"></span>
     <span id="remainChip" class="chip chip-blue"></span>
     <button class="btn btn-ghost sm" data-open="criteriaModal">기준 보기</button>
@@ -28,112 +27,123 @@
 <div id="banners" class="banners"></div>
 
 <!-- S1 프롬프트 편집 -->
-<main id="view-edit" class="view">
-  <section class="card toolbar">
-    <div class="row gap12 center">
-      <span id="branchChip" class="chip chip-dark"></span>
-      <span id="savedText" class="muted"></span>
-      <span id="dirtyChip" class="chip chip-orange sm hidden">● 저장하지 않은 변경 있음</span>
-    </div>
-    <div class="row gap10 center">
-      <div class="seg" id="viewSeg">
-        <button data-side="1" class="on">나란히 비교</button>
-        <button data-side="0">한 화면</button>
+<main id="view-edit" class="view-edit">
+  <section class="editor-card" id="edCard">
+    <div class="ed-head">
+      <div class="tabs" id="tabs"></div>
+      <div class="acts">
+        <div class="seg" id="viewSeg">
+          <button data-side="1" class="on">나란히 비교</button>
+          <button data-side="0">한 화면</button>
+        </div>
+        <button class="btn sm" id="revertBtn"><span class="long">v9.0.0으로 되돌리기</span><span class="short">되돌리기</span></button>
+        <button class="btn btn-dark sm" id="saveBtn">저장</button>
+        <button class="btn btn-primary sm" id="genBtn">질문 생성</button>
       </div>
-      <button class="btn" id="revertBtn">v9.0.0으로 되돌리기</button>
-      <button class="btn btn-dark" id="saveBtn">저장</button>
+    </div>
+    <div class="ed-meta">
+      <div class="row gap10 center wrap0">
+        <span class="muted" id="edFile"></span>
+        <b class="ink" id="edLines"></b>
+        <span class="sub b6" id="edDiff"></span>
+        <span class="chip xs hidden" id="edChange"></span>
+      </div>
+      <div class="row gap10 center wrap0">
+        <span class="chip chip-dark xs" id="branchChip"></span>
+        <span class="sub" id="savedText"></span>
+        <span class="chip chip-orange xs hidden" id="dirtyChip">● 저장하지 않은 변경 있음</span>
+      </div>
+    </div>
+    <div class="ed-cols" id="edCols">
+      <div>v9.0.0 · 읽기 전용</div>
+      <div class="blue">내 프롬프트 · 편집 중</div>
+    </div>
+    <div id="editor" class="editor"></div>
+    <textarea id="fallbackEditor" class="fallback hidden" spellcheck="false"></textarea>
+    <div class="ed-foot">
+      <span id="fmtStatus" class="green b6"></span>
+      <span class="sub">②·④는 고쳐도 점수와 투표에 들어가지 않아요 · 형식 영역이 바뀌면 저장할 때 경고해요</span>
     </div>
   </section>
 
-  <section class="card chain">
-    <div class="row between center">
-      <b class="h16">질문 생성 체인</b>
-      <span class="note-org">단계를 누르면 그 프롬프트를 편집할 수 있어요. 다만, 평가 주제와 꼬리 질문 프롬프트는 개선해도 점수와 투표에 들어가지 않아요.</span>
+  <aside class="panel hidden" id="panel">
+    <div class="panel-head"><b class="h15">한눈에 보기</b><button class="btn btn-ghost xs" id="panelClose">접기 ›</button></div>
+    <div class="panel-body">
+      <section class="acc" data-sec="result">
+        <button class="acc-h"><span class="tt"><b>최근 결과</b><span class="muted xs" id="lastMeta"></span></span><i class="chev"></i></button>
+        <div class="acc-b" id="lastBody"></div>
+      </section>
+      <section class="acc" data-sec="cases">
+        <button class="acc-h"><span class="tt"><b>공통 케이스 10개</b><span class="muted xs">누르면 공고·지원자 정보 창이 열려요</span></span><i class="chev"></i></button>
+        <div class="acc-b"><div class="wrap" id="caseChips"></div></div>
+      </section>
+      <section class="acc" data-sec="remain">
+        <button class="acc-h"><span class="tt"><b>남은 질문</b><span class="muted xs" id="remainSub"></span></span><b class="blue h15" id="remainBig"></b><i class="chev"></i></button>
+        <div class="bar mini"><i id="remainBar"></i></div>
+        <div class="acc-b"><p class="sub sm" id="remainText"></p></div>
+      </section>
     </div>
-    <div class="steps" id="steps"></div>
-  </section>
+  </aside>
 
-  <div class="main-row">
-    <section class="card editor-card">
-      <div class="ed-head">
-        <div class="row gap10 center"><b class="h16" id="edTitle">③ 질문 생성 프롬프트</b><span class="muted sm" id="edLines"></span></div>
-        <span class="sub sm b6" id="edDiff"></span>
-      </div>
-      <div class="ed-cols" id="edCols">
-        <div>v9.0.0 · 읽기 전용</div>
-        <div class="blue">내 프롬프트 · 편집 중</div>
-      </div>
-      <div id="editor" class="editor"></div>
-      <textarea id="fallbackEditor" class="fallback hidden" spellcheck="false"></textarea>
-      <div class="ed-foot">
-        <span id="fmtStatus" class="green b6 sm"></span>
-        <span class="sub sm">형식 영역이 바뀌면 저장할 때 경고해요</span>
-      </div>
-    </section>
-
-    <aside class="side">
-      <section class="card">
-        <div class="row between center"><b class="h16">최근 결과</b><span class="muted xs" id="lastMeta"></span></div>
-        <div id="lastBody"></div>
-      </section>
-      <section class="card">
-        <b class="h16">공통 케이스 10개</b>
-        <p class="sub sm">누르면 공고·지원자 정보 창이 열려요</p>
-        <div class="wrap" id="caseChips"></div>
-      </section>
-      <section class="card">
-        <div class="row between center"><b class="h16">남은 질문</b><b class="blue h20" id="remainBig"></b></div>
-        <div class="bar"><i id="remainBar"></i></div>
-        <p class="sub sm" id="remainText"></p>
-      </section>
-    </aside>
-  </div>
-
-  <section class="card bottom-bar">
-    <div>
-      <b class="h16">공통 케이스 10개 · 질문 20개</b>
-      <p class="sub sm">저장된 프롬프트로 생성해요 · 생성 중에는 프롬프트를 고칠 수 없어요</p>
-    </div>
-    <button class="btn btn-primary lg" id="openGen">질문 생성</button>
-  </section>
+  <nav class="rail" id="rail">
+    <button class="rail-toggle" id="railToggle" title="패널 열기·닫기">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+    </button>
+    <span class="rail-div"></span>
+    <button class="rail-item" data-rail="result">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+      <span class="lb">최근 결과</span><b id="railResult">-</b>
+    </button>
+    <button class="rail-item" data-rail="cases">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+      <span class="lb">공통 케이스</span><b>10</b>
+    </button>
+    <button class="rail-item" data-rail="remain">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>
+      <span class="lb">남은 질문</span><b class="blue" id="railRemain"></b>
+    </button>
+  </nav>
 </main>
 
 <!-- S3 결과 -->
-<main id="view-result" class="view hidden">
-  <div id="resultEmpty" class="card empty hidden">
-    <b class="h16">아직 결과가 없어요</b>
-    <p class="sub">프롬프트 편집 화면에서 질문을 생성하면 여기서 점수와 질문을 볼 수 있어요.</p>
-    <button class="btn btn-primary" data-view="edit">프롬프트 편집으로</button>
-  </div>
-  <div id="resultBody" class="hidden">
-    <section class="card result-head">
-      <div>
-        <div class="row gap10 center"><b class="h20">최근 실행 결과</b><span class="chip chip-gray sm" id="rScope"></span></div>
-        <p class="sub sm" id="rMeta"></p>
-      </div>
-      <div class="row gap10 center">
-        <span class="chip chip-green sm" id="rFile"></span>
-        <span class="chip sm" id="rPush"></span>
-        <button class="btn" data-view="edit">프롬프트 고치러 가기</button>
-        <button class="btn btn-primary" id="rerunBtn">같은 범위로 다시 생성</button>
-      </div>
-    </section>
-    <section class="score-row">
-      <div class="card big-score">
-        <span class="sub b6">평가 점수</span>
-        <div class="row gap6 end"><b class="h44" id="rScore"></b><span class="muted h18">/ 100</span></div>
-        <div class="kv"><span class="sub">기준 점수 (v9.0.0)</span><span id="rBase" class="b5"></span></div>
-        <p class="sub xs" id="rScoreNote">질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 기준에서 흔들림 폭을 뺀 값보다 낮으면 패널티가 있어요.</p>
-      </div>
-      <div class="dims" id="rDims"></div>
-    </section>
-    <section class="card rules-strip" id="rRules"></section>
-    <section class="card table" id="rTable"></section>
-    <p class="muted xs">질문 점수 = J1 + J2 + J3 + J4 (100점) · 평가 점수 = 질문 20개 점수의 평균 · 연습 점수예요. 공식 점수는 운영자 PC에서 제출본 프롬프트로 다시 매겨요.</p>
+<main id="view-result" class="view-result hidden">
+  <div class="result-wrap">
+    <div id="resultEmpty" class="card empty hidden">
+      <b class="h16">아직 결과가 없어요</b>
+      <p class="sub">프롬프트 편집 화면에서 질문을 생성하면 여기서 점수와 질문을 볼 수 있어요.</p>
+      <button class="btn btn-primary" data-view="edit">프롬프트 편집으로</button>
+    </div>
+    <div id="resultBody" class="result-body hidden">
+      <section class="card result-head">
+        <div>
+          <div class="row gap10 center"><b class="h20">최근 실행 결과</b><span class="chip chip-gray sm" id="rScope"></span></div>
+          <p class="sub sm" id="rMeta"></p>
+        </div>
+        <div class="row gap10 center">
+          <span class="chip chip-green sm" id="rFile"></span>
+          <span class="chip sm" id="rPush"></span>
+          <button class="btn" data-view="edit">프롬프트 고치러 가기</button>
+          <button class="btn btn-primary" id="rerunBtn">같은 범위로 다시 생성</button>
+        </div>
+      </section>
+      <section class="score-row">
+        <div class="card big-score">
+          <span class="sub b6" id="rScoreLabel">평가 점수</span>
+          <div class="row gap6 end"><b class="h44" id="rScore"></b><span class="muted h18">/ 100</span></div>
+          <div class="kv"><span class="sub" id="rBaseLabel">기준 점수 (v9.0.0)</span><span id="rBase" class="b6"></span></div>
+          <p class="sub xs" id="rScoreNote"></p>
+          <p class="muted xs" id="rVariance"></p>
+        </div>
+        <div class="dims" id="rDims"></div>
+      </section>
+      <section class="card rules-strip" id="rRules"></section>
+      <section class="card table" id="rTable"></section>
+      <p class="muted xs">질문 점수 = J1 + J2 + J3 + J4 (100점) · 평가 점수 = 질문 20개 점수의 평균 · 연습 점수예요. 공식 점수는 운영자 PC에서 제출본 프롬프트로 다시 매겨요.</p>
+    </div>
   </div>
 </main>
 
-<!-- S2-a 질문 생성 창 -->
+<!-- S2 질문 생성 창 -->
 <div class="modal-back hidden" id="genModal">
   <div class="modal w640">
     <div class="m-head">
@@ -164,31 +174,13 @@
       <div class="kv"><span class="sub">실행 후 남은 질문</span><b class="blue" id="sumRemain"></b></div>
       <div class="kv"><span class="sub">예상 시간</span><span id="sumTime" class="sub"></span></div>
     </div>
+    <div class="warn-row hidden" id="genChange"></div>
     <div class="warn-row hidden" id="genDirtyWarn">저장하지 않은 변경이 있어요. 저장한 뒤 생성해요.</div>
     <div class="err-row hidden" id="genErr"></div>
+    <p class="muted xs">생성하기를 누르면 창이 닫히고 오른쪽 아래에 진행 상황이 보여요. 생성하는 동안에도 프롬프트를 고치고 저장할 수 있어요.</p>
     <div class="row gap10 end-x">
       <button class="btn" data-close>취소</button>
       <button class="btn btn-primary" id="genStart">생성하기</button>
-    </div>
-  </div>
-</div>
-
-<!-- S2-b 진행 중 -->
-<div class="modal-back hidden" id="progModal">
-  <div class="modal w640">
-    <div class="m-head">
-      <div><div class="row gap10 center"><b class="h22" id="pTitle">질문 생성 중</b><span class="chip chip-blue sm" id="pBadge">진행 중</span></div><p class="sub" id="pMeta"></p></div>
-      <button class="x" data-close>✕</button>
-    </div>
-    <div class="psteps" id="pSteps"></div>
-    <div class="bar"><i id="pBar"></i></div>
-    <div class="plist" id="pList"></div>
-    <div class="err-row hidden" id="pErr"></div>
-    <p class="sub sm">창을 닫아도 실행은 계속되고, 상단 바에 진행 상태가 보여요. 진행 중에는 프롬프트를 고칠 수 없어요.</p>
-    <p class="sub sm">중지해도 이미 만든 질문 수는 남은 질문에서 빠져요. 끝나면 결과 화면으로 넘어가요.</p>
-    <div class="row gap10 end-x">
-      <button class="btn" id="pStop">중지</button>
-      <button class="btn btn-dark" id="pClose" data-close>창 닫기</button>
     </div>
   </div>
 </div>
@@ -207,7 +199,7 @@
     </div>
     <div class="m-scroll">
       <div id="critRubric" class="rubric-table"></div>
-      <b class="h15" id="critFailTitle">J2 실패 유형</b>
+      <b class="h15">J2 실패 유형</b>
       <div id="critFail" class="fail-box"></div>
       <div class="row gap10 center"><b class="h15">규칙 진단 16개</b><span class="chip chip-gray sm">진단용 · 점수에 넣지 않음</span></div>
       <div id="critRules" class="rules-grid"></div>
@@ -270,6 +262,8 @@
   </div>
 </div>
 
+<!-- 생성 진행 스낵바 -->
+<div id="snack" class="snack hidden" role="status" aria-live="polite"></div>
 <div id="toast" class="toast hidden"></div>
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
 <script src="/app.js"></script>

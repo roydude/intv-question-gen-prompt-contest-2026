@@ -3,11 +3,14 @@ const MONACO = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min';
 const S = {
   state: null, prompts: null, cases: [], stage: 'assignments', saved: {}, current: {},
   side: true, diff: null, models: {}, fallback: false, decos: [], result: null,
-  genScope: 'all', genPick: new Set(), poll: null, lastSavedAt: null, updTimer: null,
+  genScope: 'all', genPick: new Set(), genChange: null, genEst: null,
+  poll: null, updTimer: null, chgTimer: null, change: null, lastSavedAt: null,
 };
+const SN = { expanded: false, stay: false, timer: null, est: null, doneRunId: null, mode: null, res: null };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/* ---------------- 공통 ---------------- */
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => null);
@@ -24,6 +27,7 @@ function fmtTime(iso) {
   return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 function hm(iso) { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+function pct(ratio) { return ratio >= 1 ? '100% 이상' : `${(ratio * 100).toFixed(1)}%`; }
 function confirmBox(title, text, yes = '확인') {
   return new Promise((res) => {
     $('cfTitle').textContent = title; $('cfText').textContent = text; $('cfYes').textContent = yes;
@@ -39,6 +43,14 @@ const isRunning = () => !!(S.state && S.state.running && S.state.running.status 
 const isDirty = (id) => (id ? S.current[id] !== S.saved[id] : Object.keys(S.saved).some((k) => S.current[k] !== S.saved[k]));
 const failName = (code) => (S.state.failTypes.find((f) => f.id === code) || {}).name || code;
 const ruleName = (id) => (S.state.rules.find((r) => r[0] === id) || [id, id])[1];
+
+/* 패널 열림 상태는 이 PC 브라우저에만 기억한다 */
+function loadUI() {
+  const def = { panel: false, open: { result: true, cases: false, remain: false } };
+  try { const v = JSON.parse(localStorage.getItem('contest.ui') || '{}'); return { ...def, ...v, open: { ...def.open, ...(v.open || {}) } }; } catch { return def; }
+}
+const UI = loadUI();
+function saveUI() { try { localStorage.setItem('contest.ui', JSON.stringify(UI)); } catch { /* 저장 못 해도 화면은 그대로 */ } }
 
 /* ---------------- 형식 영역·줄 비교 ---------------- */
 function formatInfo(text) {
@@ -113,30 +125,22 @@ function useFallback() {
   updateEditorMeta();
 }
 function setStageModel() {
-  const c = chainById(S.stage);
-  $('edTitle').textContent = `${c.no} ${c.name} 프롬프트`;
   if (S.fallback) { $('fallbackEditor').value = S.current[S.stage]; }
   else if (S.diff) { S.diff.setModel({ original: S.models[S.stage].orig, modified: S.models[S.stage].mod }); }
-  applyReadOnly();
+  $('edFile').textContent = `prompts/${chainById(S.stage).file}`;
   updateEditorMeta();
-}
-function applyReadOnly() {
-  const ro = isRunning();
-  if (S.diff) S.diff.getModifiedEditor().updateOptions({ readOnly: ro });
-  if (S.fallback) $('fallbackEditor').readOnly = ro;
 }
 function scheduleUpdate() { clearTimeout(S.updTimer); S.updTimer = setTimeout(updateEditorMeta, 250); }
 function updateEditorMeta() {
   const id = S.stage; const base = S.prompts[id].base; const mine = S.current[id];
   const lines = (t) => t.replace(/\n$/, '').split('\n').length;
-  const nb = lines(base); const nm = lines(mine);
-  $('edLines').textContent = `${nb}줄 → ${nm}줄`;
+  $('edLines').textContent = `${lines(base)}줄 → ${lines(mine)}줄`;
   const d = diffCounts(base, mine);
   $('edDiff').textContent = d.add || d.rem ? `v9.0.0 대비 +${d.add}줄 −${d.rem}줄` : 'v9.0.0과 같아요';
   const fc = formatChanged(id, mine);
   const fs = $('fmtStatus');
   fs.textContent = fc.length ? `⚠ 형식 영역이 바뀌었어요: ${fc.join(', ')}` : '✓ 입력·출력 형식 영역 변경 없음';
-  fs.className = `b6 sm ${fc.length ? 'org' : 'green'}`;
+  fs.className = `b6 ${fc.length ? 'org' : 'green'}`;
   if (S.diff && window.monaco) {
     const ed = S.diff.getModifiedEditor();
     S.decos = ed.deltaDecorations(S.decos, formatInfo(mine).ranges.map(([a, b]) => ({
@@ -145,10 +149,30 @@ function updateEditorMeta() {
     })));
   }
   renderDirty();
+  scheduleChange();
+}
+/* ③의 v9.0.0 대비 바뀐 분량(제출 조건)은 서버가 계산한다 */
+function scheduleChange() {
+  const chip = $('edChange');
+  if (S.stage !== 'assignments') { chip.classList.add('hidden'); return; }
+  clearTimeout(S.chgTimer);
+  S.chgTimer = setTimeout(async () => {
+    try { S.change = await api('/api/prompts/change', { id: 'assignments', text: S.current.assignments }); } catch { return; }
+    renderChange();
+  }, 500);
+}
+function renderChange() {
+  const chip = $('edChange'); const c = S.change;
+  if (!c || S.stage !== 'assignments') { chip.classList.add('hidden'); return; }
+  const need = `${Math.round(c.min * 100)}%`;
+  if (c.identical) { chip.textContent = '바뀐 분량 0% · 이대로는 제출할 수 없어요'; chip.className = 'chip xs chip-orange'; }
+  else if (!c.ok) { chip.textContent = `바뀐 분량 ${pct(c.ratio)} · 제출하려면 ${need} 이상`; chip.className = 'chip xs chip-orange'; }
+  else { chip.textContent = `바뀐 분량 ${pct(c.ratio)} · 제출 가능`; chip.className = 'chip xs chip-green'; }
+  chip.title = '공백·빈 줄 차이는 세지 않아요';
 }
 function renderDirty() {
   $('dirtyChip').classList.toggle('hidden', !isDirty());
-  renderSteps();
+  renderTabs();
 }
 async function saveAll() {
   const dirty = S.state.chain.map((c) => c.id).filter((id) => isDirty(id));
@@ -168,7 +192,7 @@ async function saveAll() {
   S.lastSavedAt = new Date();
   $('savedText').textContent = `마지막 저장 ${hm(S.lastSavedAt)}`;
   renderDirty();
-  toast('저장했어요');
+  toast(isRunning() ? '저장했어요. 진행 중인 생성에는 시작할 때의 프롬프트가 쓰여요' : '저장했어요');
   return true;
 }
 async function revertStage() {
@@ -180,24 +204,32 @@ async function revertStage() {
   else { $('fallbackEditor').value = base; S.current[S.stage] = base; updateEditorMeta(); }
 }
 
-/* ---------------- 상단·배너·체인·오른쪽 ---------------- */
+/* ---------------- 상단·탭·배너·오른쪽 ---------------- */
 function renderTop() {
   const st = S.state; const u = st.usage;
   $('deadlineChip').textContent = st.deadline;
   $('remainChip').textContent = `남은 질문 ${u.remaining}/${u.limit}`;
-  const rc = $('runChip');
-  if (isRunning()) {
-    const r = st.running; rc.textContent = `생성 중 ${r.judgeDone}/${r.total}`; rc.classList.remove('hidden');
-  } else rc.classList.add('hidden');
   $('branchChip').textContent = st.git.branch ? `브랜치 ${st.git.branch}` : 'git 저장소 아님';
-  applyReadOnly();
+  const g = $('genBtn');
+  if (isRunning()) { const r = st.running; g.disabled = true; g.textContent = `생성 중 ${r.judgeDone}/${r.total}`; }
+  else { g.disabled = false; g.textContent = '질문 생성'; }
+}
+function renderTabs() {
+  const box = $('tabs'); box.innerHTML = '';
+  S.state.chain.forEach((c) => {
+    const b = document.createElement('button'); b.className = `tab ${c.id === S.stage ? 'on' : ''}`;
+    b.innerHTML = `${esc(c.no)} ${esc(c.name)}<span class="st">${c.scored ? '채점 대상' : '점수 미반영'}</span>${isDirty(c.id) ? '<span class="dot" title="저장하지 않은 변경">●</span>' : ''}`;
+    b.title = c.desc;
+    b.onclick = () => { S.stage = c.id; setStageModel(); };
+    box.appendChild(b);
+  });
 }
 const bannerKeys = new Set();
 function showBanner(text, tone, key, actionLabel, action) {
   if (key && bannerKeys.has(key)) return;
   const b = document.createElement('div'); b.className = `banner ${tone === 'red' ? 'red' : ''}`; b.textContent = text;
   if (key) { b.dataset.key = key; bannerKeys.add(key); }
-  if (actionLabel) { const btn = document.createElement('button'); btn.className = 'btn sm'; btn.style.marginLeft = '12px'; btn.textContent = actionLabel; btn.onclick = action; b.appendChild(btn); }
+  if (actionLabel) { const btn = document.createElement('button'); btn.className = 'btn xs'; btn.style.marginLeft = '12px'; btn.textContent = actionLabel; btn.onclick = action; b.appendChild(btn); }
   $('banners').appendChild(b);
 }
 function renderBanners() {
@@ -209,41 +241,47 @@ function renderBanners() {
   if (st.usage.error) add(st.usage.error, 'red', 'ledger');
   if (st.push && st.push.state === 'failed') add('실행 기록을 개인 브랜치에 올리지 못했어요. 다음 실행 때 다시 올려요.', 'org', 'push', '지금 다시 올리기', async () => { const r = await api('/api/push', {}); toast(r.message); refreshState(); });
 }
-function renderSteps() {
-  const box = $('steps'); box.innerHTML = '';
-  S.state.chain.forEach((c, i) => {
-    if (i) { const a = document.createElement('span'); a.className = 'arrow'; a.textContent = '→'; box.appendChild(a); }
-    const on = c.id === S.stage;
-    const b = document.createElement('button'); b.className = `step ${on ? 'on' : ''}`;
-    const state = c.scored ? (on ? '편집 중 · 채점 대상' : '채점 대상') : c.state;
-    b.innerHTML = `<span class="t">${esc(c.no)} ${esc(c.name)} <span class="chip xs ${on ? 'chip-solid-blue' : 'chip-white'}">${esc(state)}</span></span>
-      <span class="d">${esc(c.desc)}</span>${isDirty(c.id) ? '<span class="dirty">● 저장하지 않은 변경</span>' : ''}`;
-    b.onclick = () => { S.stage = c.id; setStageModel(); renderSteps(); };
-    box.appendChild(b);
-  });
+function sameBase(r) {
+  if (r.baselineSame != null) return r.baselineSame;
+  const ca = S.state.baseline.caseAvg || {}; const ids = r.caseIds || [];
+  const v = ids.map((c) => ca[c]).filter((x) => x != null);
+  return v.length && v.length === ids.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
 }
-function renderSide() {
-  const st = S.state; const u = st.usage; const r = st.latest;
+function renderPanel() {
+  const st = S.state; const u = st.usage; const r = st.latest; const base = st.baseline;
   const body = $('lastBody');
-  if (!r) { $('lastMeta').textContent = ''; body.innerHTML = '<p class="sub sm">아직 실행한 적이 없어요. 아래 질문 생성으로 첫 결과를 만들어 보세요.</p>'; }
+  if (!r) { $('lastMeta').textContent = '아직 실행한 적이 없어요'; body.innerHTML = '<p class="sub sm">질문 생성으로 첫 결과를 만들어 보세요.</p>'; $('railResult').textContent = '-'; }
   else {
+    const full = r.evalScore != null;
     $('lastMeta').textContent = `${fmtTime(r.finishedAt)} · 질문 ${r.cases * st.qpc}개`;
-    const score = r.evalScore != null ? `<b class="h20">${r.evalScore}</b>` : `<span class="sub sm">질문 평균 ${r.questionAvg ?? '-'}</span>`;
-    const base = st.baseline.ready ? `${st.baseline.mean}` : '산출 예정';
+    $('railResult').textContent = full ? r.evalScore : (r.questionAvg ?? '-');
     const rf = Object.values(r.ruleFails || {}).reduce((a, b) => a + b, 0);
     const top = Object.entries(r.failCounts || {})[0];
-    body.innerHTML = `
-      <div class="kv"><span class="sub">평가 점수</span>${score}</div>
-      <div class="kv"><span class="sub">기준 점수 (v9.0.0)</span><span class="${st.baseline.ready ? 'b6' : 'sub'}">${esc(base)}</span></div>
-      <div class="divider"></div>
+    const head = full
+      ? `<div class="kv"><span class="sub">평가 점수</span><b class="h20">${r.evalScore}</b></div>
+         <div class="kv"><span class="sub">기준 점수 (v9.0.0)</span><span class="b6">${base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정'}</span></div>`
+      : `<div class="kv"><span class="sub">질문 평균 · 케이스 ${r.cases}개</span><b class="h20">${r.questionAvg ?? '-'}</b></div>
+         <div class="kv"><span class="sub">같은 케이스 기준 (v9.0.0)</span><span class="b6">${sameBase(r) ?? '-'}</span></div>
+         <p class="muted xs">평가 점수는 전체 케이스로 실행해야 나와요</p>`;
+    body.innerHTML = `${head}<div class="divider"></div>
       ${st.rubric.map((d) => `<div class="kv"><span class="sub">${d.id} ${esc(d.name)}</span><span class="v">${r.dimAvg?.[d.id] ?? '-'} / ${d.weight}</span></div>`).join('')}
       <div class="kv"><span class="sub">규칙 진단</span><span class="sub sm b5">위반 ${rf}건 · 점수 미반영</span></div>
       <div class="kv"><span class="sub">많이 걸린 유형</span><span class="org sm b6">${top ? `${top[0]} ${esc(failName(top[0]))} ×${top[1]}` : '없음'}</span></div>
-      <button class="btn full" data-view="result">결과 보기</button>`;
+      <button class="btn sm full" data-view="result">결과 보기</button>`;
   }
+  const cycles = Math.floor(u.remaining / (10 * st.qpc));
   $('remainBig').textContent = `${u.remaining} / ${u.limit}`;
+  $('remainSub').textContent = `사이클 ${cycles}번 남음`;
+  $('railRemain').textContent = u.remaining;
   $('remainBar').style.width = `${Math.min(100, ((u.used || 0) / u.limit) * 100)}%`;
-  $('remainText').textContent = `사이클 ${Math.floor(u.remaining / (10 * st.qpc))}번 남음 · 기록은 runs/에 남아요`;
+  $('remainText').textContent = '생성을 시작하면 바로 차감되고, 기록은 runs/에 남아 개인 브랜치에 자동으로 올라가요.';
+}
+function applyPanel() {
+  $('panel').classList.toggle('hidden', !UI.panel);
+  $('railToggle').classList.toggle('on', UI.panel);
+  document.querySelectorAll('.acc').forEach((a) => a.classList.toggle('open', !!UI.open[a.dataset.sec]));
+  document.querySelectorAll('.rail-item').forEach((b) => b.classList.toggle('on', UI.panel && !!UI.open[b.dataset.rail]));
+  saveUI();
 }
 function renderCaseChips() {
   const box = $('caseChips'); box.innerHTML = '';
@@ -251,13 +289,13 @@ function renderCaseChips() {
 }
 async function refreshState() {
   try { S.state = await api('/api/state'); } catch { return; }
-  renderTop(); renderSide(); renderBanners();
-  if (isRunning() && !S.poll) startPolling(false);
+  renderTop(); renderPanel(); renderBanners();
+  if (isRunning() && !S.poll) startPolling();
 }
 
-/* ---------------- 생성 창 ---------------- */
-function openGen(prefill) {
-  if (isRunning()) { openModal('progModal'); return; }
+/* ---------------- 질문 생성 창 ---------------- */
+async function openGen(prefill) {
+  if (isRunning()) { SN.expanded = true; renderSnackRunning(S.state.running); toast('이미 생성 중이에요'); return; }
   const st = S.state;
   S.genScope = prefill?.scope || 'all';
   S.genPick = new Set(prefill?.scope === 'pick' ? prefill.cases : []);
@@ -276,6 +314,8 @@ function openGen(prefill) {
   });
   document.querySelectorAll('input[name=scope]').forEach((r) => { r.checked = r.value === S.genScope; });
   $('genErr').classList.add('hidden');
+  S.genChange = null;
+  try { S.genChange = await api('/api/prompts/change', { id: 'assignments', text: S.current.assignments }); } catch { /* 표시만 생략 */ }
   renderGen();
   openModal('genModal');
 }
@@ -294,6 +334,10 @@ async function renderGen() {
   $('sumRemain').textContent = `${after} / ${st.usage.limit}`; $('sumRemain').className = after < 0 ? 'red' : 'blue';
   $('genDirtyWarn').classList.toggle('hidden', !isDirty());
   $('genStart').textContent = isDirty() ? '저장하고 생성하기' : '생성하기';
+  const c = S.genChange; const cr = $('genChange');
+  if (c && c.identical) { cr.textContent = '③이 v9.0.0과 같아요. 기준선과 비슷한 점수가 나오고, 이대로는 제출할 수 없어요.'; cr.className = 'warn-row'; }
+  else if (c && !c.ok) { cr.textContent = `③ 바뀐 분량 ${pct(c.ratio)} · 제출하려면 ${Math.round(c.min * 100)}% 이상 바꿔야 해요. 생성은 할 수 있어요.`; cr.className = 'warn-row info'; }
+  else cr.className = 'warn-row hidden';
   let err = '';
   if (!st.git.repo) err = 'git 저장소에서만 생성할 수 있어요.';
   else if (!st.branchOk) err = `개인 브랜치(${st.branchPrefix}영문이름)에서만 생성할 수 있어요. Claude Code에서 /시작을 먼저 해 주세요.`;
@@ -305,10 +349,16 @@ async function renderGen() {
   $('sumTime').textContent = '…';
   try {
     const e = await api(`/api/estimate?cases=${n || 1}`);
+    S.genEst = e.seconds;
     $('sumTime').textContent = e.seconds ? `약 ${Math.max(1, Math.round(e.seconds / 60))}분` : '기준선 실측 후 표시';
-  } catch { $('sumTime').textContent = '기준선 실측 후 표시'; }
+  } catch { S.genEst = null; $('sumTime').textContent = '기준선 실측 후 표시'; }
 }
 async function startGen() {
+  if (S.genChange && S.genChange.identical) {
+    const n = S.genScope === 'all' ? S.cases.length : S.genPick.size;
+    const ok = await confirmBox('v9.0.0과 같은 프롬프트예요', `기준선과 비슷한 점수가 나오고 남은 질문이 ${n * S.state.qpc}개 줄어요. 환경을 확인하려는 거라면 그대로 생성해도 돼요. 생성할까요?`, '생성');
+    if (!ok) return;
+  }
   if (isDirty() && !(await saveAll())) return;
   const m = $('genModel').value; const model = m === '__custom' ? $('genCustomModel').value.trim() : m;
   const body = { scope: S.genScope, cases: [...S.genPick], model, effort: $('genEffort').value };
@@ -317,60 +367,123 @@ async function startGen() {
     const snap = await api('/api/run', body);
     closeModal('genModal');
     S.state.running = snap; renderTop();
-    renderProgress(snap); openModal('progModal'); startPolling(true);
+    SN.expanded = false; SN.stay = false; SN.doneRunId = null; SN.est = S.genEst;
+    renderSnackRunning(snap); startPolling();
   } catch (e) {
     $('genErr').textContent = e.message; $('genErr').classList.remove('hidden'); $('genStart').disabled = false;
   }
 }
 
-/* ---------------- 진행 ---------------- */
-function startPolling(autoNavigate) {
+/* ---------------- 진행 스낵바 ---------------- */
+const ICON = {
+  check: '<svg class="sn-ic" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  alert: '<svg class="sn-ic" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>',
+  stop: '<svg class="sn-ic" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+};
+function showSnack(html, mode) { const s = $('snack'); s.innerHTML = html; s.classList.remove('hidden'); SN.mode = mode; }
+function hideSnack() { clearInterval(SN.timer); SN.timer = null; $('snack').classList.add('hidden'); SN.mode = null; }
+function leftText(r) {
+  if (!SN.est || !r.startedAt) return '';
+  const rem = SN.est - (Date.now() - new Date(r.startedAt).getTime()) / 1000;
+  if (rem > 60) return `약 ${Math.ceil(rem / 60)}분 남음`;
+  return rem > 0 ? '1분 안에 끝나요' : '곧 끝나요';
+}
+function caseState(c) {
+  if (c.gen === 'skip') return ['건너뜀', ''];
+  if (c.gen === 'wait') return ['대기', ''];
+  if (c.gen === 'running') return ['생성 중', 'on'];
+  if (c.gen === 'error') return ['생성 실패', 'bad'];
+  if (c.judge === 'running') return ['채점 중', 'on'];
+  if (c.judge === 'done') return ['채점 완료', 'ok'];
+  if (c.judge === 'error') return ['채점 실패', 'bad'];
+  if (c.judge === 'skip') return ['출력 오류', 'bad'];
+  return ['채점 대기', ''];
+}
+function renderSnackRunning(r) {
+  const phase = r.genDone < r.total ? `① 질문 생성 ${r.genDone}/${r.total} 케이스` : (r.judgeDone < r.total ? `③ AI 채점 ${r.judgeDone}/${r.total} 케이스` : '마무리하는 중');
+  const p = r.total ? ((r.genDone + r.judgeDone) / (2 * r.total)) * 100 : 0;
+  const left = leftText(r);
+  let html = `<div class="sn-h"><span class="spin"></span><span class="t">질문 생성 중</span>
+    <button class="sn-btn" data-sn="toggle">${SN.expanded ? '접기' : '자세히'}</button><button class="sn-btn red" data-sn="stop">중지</button></div>
+    <div class="sn-bar"><i style="width:${p}%"></i></div>
+    <div class="sn-sub">${phase}${r.startedAt ? ` · ${hm(r.startedAt)} 시작` : ''}${left ? ` · ${left}` : ''}</div>`;
+  if (SN.expanded) {
+    const step = (t, done, on) => `<span class="sn-chip ${done ? 'ok' : (on ? 'on' : '')}">${done ? '✓ ' : ''}${t}</span>`;
+    html += `<div class="sn-steps">${step(`질문 생성 ${r.genDone}/${r.total}`, r.genDone === r.total, r.genDone < r.total)}${step('규칙 검사', r.checkDone === r.total, false)}${step(`AI 채점 ${r.judgeDone}/${r.total}`, r.judgeDone === r.total, r.genDone === r.total)}</div>
+      <div class="sn-list">${r.cases.map((c) => { const [t, k] = caseState(c); return `<div class="r"><span>${esc(c.label)}</span><span class="sn-chip ${k}">${t}</span></div>`; }).join('')}</div>
+      <div class="sn-sub">생성은 시작할 때 저장된 프롬프트로 진행돼요. 그동안 편집기에서 다음 수정을 이어 가도 돼요.</div>`;
+  }
+  showSnack(html, 'run');
+}
+function doneLine(res) {
+  const base = S.state.baseline;
+  if (res.evalScore != null) {
+    if (!base.ready) return `평가 점수 ${res.evalScore}`;
+    const d = Math.round((res.evalScore - base.mean) * 10) / 10;
+    return `평가 점수 ${res.evalScore} · 기준 ${base.mean}보다 ${Math.abs(d)}점 ${d >= 0 ? '높아요' : '낮아요'}`;
+  }
+  const same = res.baselineSame ?? sameBase({ ...res, caseIds: res.cases });
+  return `질문 평균 ${res.questionAvg ?? '-'} (케이스 ${res.cases.length}개)${same != null ? ` · 같은 케이스 기준 ${same}` : ''}`;
+}
+function renderSnackDone(res) {
+  SN.res = res;
+  clearInterval(SN.timer); SN.timer = null;
+  const onResult = !$('view-result').classList.contains('hidden');
+  const head = `<div class="sn-h">${ICON.check}<span class="t">질문 생성 완료</span><button class="sn-btn" data-sn="close" title="닫기">${ICON.x}</button></div>
+    <div class="sn-txt">${esc(doneLine(res))}</div><div class="sn-bar ok"><i style="width:100%"></i></div>`;
+  if (onResult) {
+    showSnack(`${head}<div class="sn-sub">결과 화면을 새로 불러왔어요.</div>`, 'done');
+    loadResult(); SN.timer = setTimeout(hideSnack, 6000); return;
+  }
+  let n = 3;
+  const paint = () => {
+    const blocked = SN.stay || isDirty();
+    const foot = blocked
+      ? `<span class="sn-sub">${isDirty() ? '저장하지 않은 변경이 있어 결과 화면으로 넘어가지 않아요' : '이 화면에 머물러요'}</span><button class="sn-pri" data-sn="result">결과 보기</button>`
+      : `<span class="sn-sub">${n}초 뒤 결과 화면으로 이동해요</span><span class="row gap6"><button class="sn-btn" data-sn="stay">머무르기</button><button class="sn-pri" data-sn="result">결과 보기</button></span>`;
+    showSnack(`${head}<div class="sn-foot">${foot}</div>`, 'done');
+    return blocked;
+  };
+  if (paint()) return;
+  SN.timer = setInterval(() => {
+    n -= 1;
+    if (paint()) { clearInterval(SN.timer); SN.timer = null; return; }
+    if (n <= 0) { clearInterval(SN.timer); SN.timer = null; goResult(); }
+  }, 1000);
+}
+function renderSnackProblem(title, text, icon) {
+  showSnack(`<div class="sn-h">${icon}<span class="t">${esc(title)}</span><button class="sn-btn" data-sn="close" title="닫기">${ICON.x}</button></div>
+    <div class="sn-txt">${esc(text)}</div><div class="sn-foot"><span></span><button class="sn-pri" data-sn="result">결과 보기</button></div>`, 'problem');
+}
+async function onFinished(r) {
+  if (SN.doneRunId === r.runId) return;
+  SN.doneRunId = r.runId;
+  if (r.status === 'error') { renderSnackProblem('생성을 시작하지 못했어요', r.message || '다시 시도해 주세요.', ICON.alert); return; }
+  let res = null;
+  try { res = await api(`/api/result?id=${encodeURIComponent(r.runId)}`); } catch { /* 결과 없음 */ }
+  if (!res) { renderSnackProblem('결과를 불러오지 못했어요', '결과 화면에서 다시 확인해 주세요.', ICON.alert); return; }
+  if (r.status === 'stopped') { renderSnackProblem('생성을 멈췄어요', `질문 ${res.charged}개가 남은 질문에서 빠졌어요. 평가 점수는 계산하지 않았어요.`, ICON.stop); return; }
+  const failed = res.items.filter((c) => c.genError || c.judgeError);
+  if (failed.length) {
+    renderSnackProblem('생성하지 못한 케이스가 있어요', `${failed.map((c) => c.label.split(' ')[0]).join('·')} 케이스가 실패해 평가 점수를 계산하지 못했어요. 만든 질문 수는 남은 질문에서 빠졌어요. 다시 실행해 주세요.`, ICON.alert);
+    return;
+  }
+  renderSnackDone(res);
+}
+function goResult() { hideSnack(); route('result'); }
+function startPolling() {
   stopPolling();
-  S.autoNav = autoNavigate;
-  S.poll = setInterval(async () => {
-    let snap; try { snap = await api('/api/run/current'); } catch { return; }
-    if (!snap) return;
-    S.state.running = snap; renderTop(); renderProgress(snap);
-    if (snap.status !== 'running') {
-      stopPolling(); await refreshState();
-      if (snap.status === 'done' || snap.status === 'stopped') {
-        if (S.autoNav || !$('progModal').classList.contains('hidden')) {
-          setTimeout(() => { closeModal('progModal'); route('result'); }, 1200);
-        } else toast('생성이 끝났어요. 결과 화면에서 확인하세요.');
-      }
-    }
-  }, 1200);
+  S.poll = setInterval(pollOnce, 1200);
+  pollOnce();
 }
 function stopPolling() { if (S.poll) clearInterval(S.poll); S.poll = null; }
-function renderProgress(r) {
-  const titles = { running: '질문 생성 중', done: '생성 완료', stopped: '중지됨', error: '생성하지 못했어요' };
-  const badges = { running: ['진행 중', 'chip-blue'], done: ['완료', 'chip-green'], stopped: ['중지', 'chip-gray'], error: ['실패', 'chip-red'] };
-  $('pTitle').textContent = titles[r.status] || '질문 생성';
-  const [bt, bc] = badges[r.status] || ['', '']; $('pBadge').textContent = bt; $('pBadge').className = `chip sm ${bc}`;
-  $('pMeta').textContent = `${r.startedAt ? `${hm(r.startedAt)} 시작 · ` : ''}${r.scope === 'all' ? '한 사이클' : `케이스 ${r.total}개`} · ${r.model} · ${r.effort || ''}`;
-  const steps = [
-    ['① 질문 생성', `${r.genDone} / ${r.total}${r.genDone === r.total ? ' 완료' : ''}`, r.genDone === r.total],
-    ['② 규칙 검사', r.checkDone === r.total ? '16개 진단 완료' : `${r.checkDone} / ${r.total}`, r.checkDone === r.total],
-    ['③ AI 채점', `${r.judgeDone} / ${r.total}${r.judgeDone === r.total ? ' 완료' : ' 진행 중'}`, r.judgeDone === r.total],
-  ];
-  const firstOpen = steps.findIndex((s) => !s[2]);
-  $('pSteps').innerHTML = steps.map((s, i) => `<div class="pstep ${s[2] ? 'done' : (i === firstOpen && r.status === 'running' ? 'on' : '')}"><b>${s[2] ? '✓ ' : ''}${s[0]}</b><div class="s">${s[1]}</div></div>`).join('');
-  $('pBar').style.width = `${r.total ? ((r.genDone + r.judgeDone) / (2 * r.total)) * 100 : 0}%`;
-  const label = (c) => {
-    if (c.gen === 'skip') return ['건너뜀', 'chip-gray'];
-    if (c.gen === 'wait') return ['대기', 'chip-gray'];
-    if (c.gen === 'running') return ['생성 중', 'chip-blue'];
-    if (c.gen === 'error') return ['생성 실패', 'chip-red'];
-    if (c.judge === 'running') return ['채점 중', 'chip-blue'];
-    if (c.judge === 'done') return [`채점 완료 ${S.state.qpc}/${S.state.qpc}`, 'chip-green'];
-    if (c.judge === 'error') return ['채점 실패', 'chip-red'];
-    if (c.judge === 'skip') return ['출력 오류', 'chip-orange'];
-    return ['채점 대기', 'chip-gray'];
-  };
-  $('pList').innerHTML = r.cases.map((c) => { const [t, k] = label(c); return `<div class="pr"><div class="row gap8 center"><b class="sm">${esc(c.label)}</b><span class="muted sm">${esc(c.who)}</span></div><span class="chip sm ${k}">${t}</span></div>`; }).join('');
-  $('pErr').textContent = r.message || ''; $('pErr').classList.toggle('hidden', !(r.status === 'error' || r.message));
-  $('pStop').disabled = r.status !== 'running';
-  $('pClose').textContent = r.status === 'done' || r.status === 'stopped' ? '결과 보기' : '창 닫기';
+async function pollOnce() {
+  let r; try { r = await api('/api/run/current'); } catch { return; }
+  if (!r) { stopPolling(); return; }
+  S.state.running = r; renderTop();
+  if (r.status === 'running') { renderSnackRunning(r); return; }
+  stopPolling(); await refreshState(); await onFinished(r);
 }
 async function stopRun() {
   const ok = await confirmBox('생성을 멈출까요?', '이미 보낸 요청은 끝까지 진행되고, 만든 질문 수는 남은 질문에서 빠져요. 평가 점수는 계산하지 않아요.', '중지');
@@ -387,16 +500,22 @@ async function loadResult(id) {
 }
 function scoreClass(v) { return v == null ? '' : v >= 80 ? 'score-good' : v < 70 ? 'score-bad' : ''; }
 function renderResult(r) {
-  const st = S.state; const n = r.cases.length;
+  const st = S.state; const n = r.cases.length; const base = st.baseline; const full = r.evalScore != null;
   $('rScope').textContent = r.scope === 'all' ? `한 사이클 · 질문 ${n * st.qpc}개` : `케이스 ${n}개 · 질문 ${n * st.qpc}개`;
   $('rMeta').textContent = `${fmtTime(r.finishedAt)} · ${r.model} · ${r.effort || ''} · 저장 커밋 ${r.head || '-'}${r.status === 'stopped' ? ' · 중지됨' : ''}`;
   $('rFile').textContent = `runs/${r.runId}.json에 기록됨`;
   const ps = st.push || {}; const pmap = { pushed: ['개인 브랜치에 올라감', 'chip-green'], failed: ['푸시 실패 · 다음 실행 때 다시 올려요', 'chip-orange'], pushing: ['올리는 중', 'chip-blue'], 'no-remote': ['원격 없음 · 커밋만 함', 'chip-gray'] };
   const pp = pmap[ps.state]; $('rPush').classList.toggle('hidden', !pp); if (pp) { $('rPush').textContent = pp[0]; $('rPush').className = `chip sm ${pp[1]}`; }
-  $('rScore').textContent = r.evalScore ?? '–';
-  $('rScore').className = `h44 ${scoreClass(r.evalScore)}`;
-  $('rBase').textContent = st.baseline.ready ? `${st.baseline.mean} · 패널티 기준 ${st.baseline.threshold}` : '산출 예정';
-  $('rScoreNote').textContent = r.evalNote || '질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 기준에서 흔들림 폭을 뺀 값보다 낮으면 패널티가 있어요.';
+  const same = sameBase({ ...r, caseIds: r.cases });
+  $('rScoreLabel').textContent = full ? '평가 점수' : `질문 평균 · 케이스 ${n}개`;
+  const shown = full ? r.evalScore : r.questionAvg;
+  $('rScore').textContent = shown ?? '–'; $('rScore').className = `h44 ${scoreClass(shown)}`;
+  $('rBaseLabel').textContent = full ? '기준 점수 (v9.0.0)' : '같은 케이스 기준 (v9.0.0)';
+  $('rBase').textContent = full ? (base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정') : (same ?? '산출 예정');
+  $('rScoreNote').textContent = full
+    ? '질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 기준에서 흔들림 폭을 뺀 값보다 낮으면 패널티가 있어요.'
+    : `${r.evalNote || ''} 비교는 같은 케이스의 기준선 평균과 해요.`;
+  $('rVariance').textContent = base.ready ? `같은 프롬프트도 실행마다 점수가 달라질 수 있어요(기준선 흔들림 폭 ${base.spread}).` : '';
   const fails = Object.entries(r.failCounts || {});
   const failText = fails.length ? fails.map(([k, v]) => `${k} ${failName(k)} ×${v}`).join(' · ') : '실패 유형 없음';
   $('rDims').innerHTML = st.rubric.map((d) => {
@@ -410,11 +529,11 @@ function renderResult(r) {
   $('rRules').innerHTML = `<b class="sm">규칙 진단 16개</b><span class="chip chip-gray sm">위반 ${rfTotal}건 · 점수 미반영</span>
     ${rf.map(([k, v]) => `<span class="chip chip-orange sm">${k} ${esc(ruleName(k))} ×${v}</span>`).join('')}
     <button class="link" data-open="criteriaModal">기준 보기 →</button>`;
-  const head = '<div class="tr head"><span>케이스</span><span>지원자</span><span>평가 주제</span><span>점수</span><span>실패 유형</span><span>규칙 진단</span><span></span></div>';
+  const head = '<div class="tr head"><span>케이스</span><span>지원자</span><span>평가 주제</span><span>점수 · 기준</span><span>실패 유형</span><span>규칙 진단</span><span></span></div>';
   $('rTable').innerHTML = head + r.items.map((c, i) => caseRow(c, i === 0)).join('');
   $('rTable').querySelectorAll('[data-toggle]').forEach((b) => { b.onclick = () => toggleRow(b.dataset.toggle); });
   $('rTable').querySelectorAll('[data-case]').forEach((b) => { b.onclick = () => openCase(b.dataset.case); });
-  $('rTable').querySelectorAll('[data-raw]').forEach((b) => { b.onclick = () => { const el = $(`raw-${b.dataset.raw}`); el.classList.toggle('hidden'); }; });
+  $('rTable').querySelectorAll('[data-raw]').forEach((b) => { b.onclick = () => { $(`raw-${b.dataset.raw}`).classList.toggle('hidden'); }; });
 }
 function caseRow(c, open) {
   const codes = {}; c.items.forEach((it) => (it.failCodes || []).forEach((k) => { codes[k] = (codes[k] || 0) + 1; }));
@@ -422,10 +541,12 @@ function caseRow(c, open) {
   const ran = !!(c.outputText || c.genError);
   const rules = !ran || c.genError ? '-' : (c.checks.failed?.length ? c.checks.failed.map((k) => `${k} ×1`).join(' · ') : '위반 0');
   const avg = c.genError ? '실패' : (c.avg ?? '-');
+  const b = c.baselineAvg ?? (S.state.baseline.caseAvg || {})[c.caseId];
   return `<div class="tr ${open ? 'open' : ''}" id="row-${c.caseId}">
     <b>${esc(c.label)}</b><span class="sub">${esc(c.who)}</span><span>${esc(c.category)}</span>
-    <b class="${scoreClass(c.avg)}">${avg}</b><span class="sm b5 ${ct === '없음' || !ran ? 'muted' : 'org'}">${ran ? ct : '-'}</span>
-    <span class="sm b5 ${rules === '위반 0' ? 'muted' : 'org'}">${rules}</span>
+    <span><b class="${scoreClass(c.avg)}">${avg}</b>${b != null ? `<span class="muted xs"> · 기준 ${b}</span>` : ''}</span>
+    <span class="sm b5 ${ct === '없음' || !ran ? 'muted' : 'org'}">${ran ? ct : '-'}</span>
+    <span class="sm b5 ${rules === '위반 0' || rules === '-' ? 'muted' : 'org'}">${rules}</span>
     <button class="toggle" data-toggle="${c.caseId}">${open ? '접기 ▴' : '펼치기 ▾'}</button></div>
     <div class="expand ${open ? '' : 'hidden'}" id="exp-${c.caseId}">${c.items.map((it, i) => qcard(c, it, i)).join('')}</div>
     <div class="${open ? '' : 'hidden'}" id="expf-${c.caseId}">${c.outputText ? `<div style="padding:0 20px 12px"><button class="link-btn" data-raw="${c.caseId}">출력 원문 보기</button></div><pre class="raw hidden" id="raw-${c.caseId}">${esc(c.outputText)}</pre>` : ''}${c.genError ? `<div class="err-row" style="margin:0 20px 16px">생성 실패: ${esc(c.genError)}</div>` : ''}${c.judgeError ? `<div class="err-row" style="margin:0 20px 16px">채점 실패: ${esc(c.judgeError)}</div>` : ''}</div>`;
@@ -522,33 +643,50 @@ function openCase(caseId) {
 /* ---------------- 화면 전환·연결 ---------------- */
 function route(view, push = true) {
   $('view-edit').classList.toggle('hidden', view !== 'edit'); $('view-result').classList.toggle('hidden', view !== 'result');
+  document.body.classList.toggle('on-edit', view === 'edit'); document.body.classList.toggle('on-result', view === 'result');
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   if (push) history.pushState({ view }, '', view === 'result' ? '/result' : '/');
-  if (view === 'result') loadResult();
+  if (view === 'result') { loadResult(); if (SN.mode === 'done') hideSnack(); }
   if (view === 'edit' && S.diff) setTimeout(() => S.diff.layout(), 0);
 }
 function bind() {
   document.addEventListener('click', (e) => {
     const v = e.target.closest('[data-view]'); if (v) { e.preventDefault(); route(v.dataset.view); return; }
     const o = e.target.closest('[data-open]'); if (o) { openModal(o.dataset.open); return; }
-    const c = e.target.closest('[data-close]'); if (c) { const m = c.closest('.modal-back'); if (m) m.classList.add('hidden'); if (c.id === 'pClose' && c.textContent === '결과 보기') route('result'); }
+    const c = e.target.closest('[data-close]'); if (c) { const m = c.closest('.modal-back'); if (m) m.classList.add('hidden'); }
   });
   document.querySelectorAll('.modal-back').forEach((m) => m.addEventListener('mousedown', (e) => { if (e.target === m && m.id !== 'confirmModal') m.classList.add('hidden'); }));
   window.addEventListener('popstate', () => route(location.pathname === '/result' ? 'result' : 'edit', false));
   window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
-  document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (!isRunning()) saveAll(); } });
-  $('saveBtn').onclick = () => { if (isRunning()) toast('생성 중에는 저장할 수 없어요'); else saveAll(); };
+  document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveAll(); } });
+  $('saveBtn').onclick = () => saveAll();
   $('revertBtn').onclick = revertStage;
+  $('genBtn').onclick = () => openGen();
   $('viewSeg').querySelectorAll('button').forEach((b) => { b.onclick = () => {
     S.side = b.dataset.side === '1'; $('viewSeg').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
     $('edCols').classList.toggle('single', !S.side); if (S.diff) S.diff.updateOptions({ renderSideBySide: S.side });
   }; });
-  $('openGen').onclick = () => openGen();
-  $('runChip').onclick = () => { renderProgress(S.state.running); openModal('progModal'); };
+  $('railToggle').onclick = () => { UI.panel = !UI.panel; applyPanel(); };
+  $('panelClose').onclick = () => { UI.panel = false; applyPanel(); };
+  document.querySelectorAll('.rail-item').forEach((b) => { b.onclick = () => {
+    const sec = b.dataset.rail;
+    if (UI.panel && UI.open[sec]) { UI.open[sec] = false; } else { UI.panel = true; UI.open[sec] = true; }
+    applyPanel();
+    document.querySelector(`.acc[data-sec="${sec}"]`)?.scrollIntoView({ block: 'nearest' });
+  }; });
+  document.querySelectorAll('.acc-h').forEach((h) => { h.onclick = () => { const sec = h.closest('.acc').dataset.sec; UI.open[sec] = !UI.open[sec]; applyPanel(); }; });
+  $('snack').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sn]'); if (!b) return;
+    const a = b.dataset.sn;
+    if (a === 'toggle') { SN.expanded = !SN.expanded; if (S.state.running) renderSnackRunning(S.state.running); }
+    if (a === 'stop') stopRun();
+    if (a === 'stay') { SN.stay = true; clearInterval(SN.timer); SN.timer = null; if (SN.res) renderSnackDone(SN.res); }
+    if (a === 'result') goResult();
+    if (a === 'close') hideSnack();
+  });
   document.querySelectorAll('input[name=scope]').forEach((r) => { r.onchange = () => { S.genScope = r.value; renderGen(); }; });
   $('genModel').onchange = () => fillEfforts($('genEffort').value);
   $('genStart').onclick = startGen;
-  $('pStop').onclick = stopRun;
   $('rerunBtn').onclick = () => { const r = S.result; openGen(r ? { scope: r.scope, cases: r.cases, model: r.model, effort: r.effort } : null); };
   $('openSettings').onclick = openSettings;
   $('setSave').onclick = saveSettings;
@@ -557,6 +695,7 @@ function bind() {
     $('critSeg').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
     $(b.dataset.anchor).scrollIntoView({ behavior: 'smooth', block: 'start' });
   }; });
+  if (window.ResizeObserver) new ResizeObserver(([en]) => { $('edCard').classList.toggle('narrow', en.contentRect.width < 1100); }).observe($('edCard'));
 }
 async function init() {
   bind();
@@ -566,10 +705,13 @@ async function init() {
   $('brandTitle').textContent = S.state.title;
   for (const id of Object.keys(S.prompts)) { S.saved[id] = S.prompts[id].mine; S.current[id] = S.prompts[id].mine; }
   $('savedText').textContent = '저장된 프롬프트를 불러왔어요';
-  renderTop(); renderBanners(); renderSteps(); renderSide(); renderCaseChips(); renderCriteria();
+  renderTop(); renderBanners(); renderTabs(); renderPanel(); renderCaseChips(); renderCriteria(); applyPanel();
   setupEditor();
   route(location.pathname === '/result' ? 'result' : 'edit', false);
   setInterval(refreshState, 5000);
-  if (isRunning()) startPolling(false);
+  if (isRunning()) {
+    try { SN.est = (await api(`/api/estimate?cases=${S.state.running.total}`)).seconds; } catch { SN.est = null; }
+    startPolling();
+  }
 }
 init();
