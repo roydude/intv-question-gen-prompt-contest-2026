@@ -1,0 +1,36 @@
+# ── 비밀값: API 키는 절대 올리지 않는다
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── PC마다 다른 설정·임시 파일
+.contest/
+scratch/
+.claude/settings.local.json
+.claude/worktrees/
+
+# ── Python·uv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 편집기·OS
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# ── 로그
+*.log
+
+# runs/(실행 기록)는 커밋한다. 무시 목록에 넣지 않는다.

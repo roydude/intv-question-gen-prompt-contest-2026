@@ -1,0 +1,85 @@
+{
+  "version": "1.0.0",
+  "title": "잡다 프롬프트 콘테스트",
+  "deadline_label": "마감 10/26(월) 오전",
+  "limit_questions": 400,
+  "questions_per_case": 2,
+  "branch_prefix": "contest/",
+  "api": "responses",
+  "base_url": "https://api.openai.com/v1",
+  "timeout_sec": 240,
+  "workers": 5,
+  "port": 8000,
+  "generation": {
+    "default_model": "gpt-6.1-sol",
+    "default_effort": "medium",
+    "max_output_tokens": 8000,
+    "models": {
+      "gpt-6.1-sol": ["low", "medium", "high", "xhigh"],
+      "gpt-6-sol": ["none", "low", "medium", "high", "xhigh"],
+      "gpt-6-luna": ["none", "low", "medium", "high", "xhigh"]
+    },
+    "allow_custom_model": true,
+    "custom_model_prefix": "gpt-"
+  },
+  "judge": {
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "max_output_tokens": 6000,
+    "label": "공식 평가와 같은 GPT 모델로 채점"
+  },
+  "chain": [
+    {
+      "id": "evaluation_topics",
+      "no": "②",
+      "name": "평가 주제 도출",
+      "file": "video-interview-practice-evaluation-topics.st",
+      "scored": false,
+      "state": "수정 가능 · 점수 미반영",
+      "desc": "고쳐도 ③에는 고정된 평가 주제 1개·요소 2개가 들어가요"
+    },
+    {
+      "id": "assignments",
+      "no": "③",
+      "name": "질문 생성",
+      "file": "video-interview-practice-assignments.st",
+      "scored": true,
+      "state": "편집 중 · 채점 대상",
+      "desc": "prompts/video-interview-practice-assignments.st"
+    },
+    {
+      "id": "answer_follow_up",
+      "no": "④",
+      "name": "꼬리질문",
+      "file": "video-interview-practice-answer-follow-up.st",
+      "scored": false,
+      "state": "수정 가능 · 점수 미반영",
+      "desc": "참고용으로 함께 제출돼요. 점수와 투표에는 들어가지 않아요"
+    }
+  ],
+  "rubric_display": [
+    {"id": "J1", "name": "공고·평가 요소 정합", "weight": 25, "desc": "질문이 공고 직무와 지정된 평가 요소를 겨냥하는가"},
+    {"id": "J2", "name": "질문 명확성", "weight": 50, "desc": "지원자가 한 번 듣고 무엇을 말할지 바로 아는가. 질문마다 실패 유형 0개 5점 · 1개 3점 · 2개 이상 1점"},
+    {"id": "J3", "name": "경험 사실 정확성", "weight": 20, "desc": "이력에 있는 사실만 정확히 짚는가. 없는 경험을 지어내지 않는가"},
+    {"id": "J4", "name": "설계도·채점 기준 일관성", "weight": 5, "desc": "질문·면접 설계도·채점 기준이 같은 것을 가리키는가"}
+  ],
+  "fail_types": [
+    {"id": "C1", "name": "묻는 것 둘 이상", "desc": "한 질문 안에서 답할 거리가 둘 이상"},
+    {"id": "C2", "name": "\"어떻게\"로만 열림", "desc": "무엇을 답할지 정하지 않고 \"어떻게\"나 \"과정\"만 물음"},
+    {"id": "C3", "name": "의도 두 갈래", "desc": "질문 의도가 두 가지로 읽힘"},
+    {"id": "C4", "name": "시점·주어 꼬임", "desc": "언제, 누구의 이야기인지 엉킴"},
+    {"id": "C5", "name": "맥락 빠짐", "desc": "무엇을 가리키는지 알 수 있는 앞뒤 맥락이 없음"}
+  ],
+  "rules_display": [
+    ["A00", "내부 값 노출 없음"], ["A01", "JSON 파싱"], ["A02", "positionId 일치"], ["A03", "interview 개수 = item 개수"],
+    ["A04", "itemId 전부 1회·categoryId 일치"], ["A05", "질문 길이 50~150자(공백 포함)"], ["A06", "질문은 하나(물음표 1개 이하)"],
+    ["A07", "질문에 STAR 용어 없음"], ["A08", "questionType 값 유효"], ["A09", "금지 용어 없음"],
+    ["A10", "answerTip 30자 이내·평가 용어 없음"], ["A11", "Blueprint 완비"], ["A12", "Rubric 3단계 criteria 완비"],
+    ["A13", "질문이 한국어"], ["A14", "최상위 스키마 키 일치"], ["A15", "interview 객체 키 일치"]
+  ],
+  "prices_usd_per_1m": {
+    "gpt-6.1-sol": {"input": 2.0, "output": 10.0},
+    "gpt-6-sol": {"input": 2.0, "output": 10.0},
+    "gpt-6-luna": {"input": 0.1, "output": 0.5}
+  }
+}
