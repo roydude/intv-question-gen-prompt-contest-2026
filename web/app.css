@@ -207,6 +207,17 @@ body.drawer-open .snack { right: 724px; }
 .radio-card.on { background: var(--blue-bg); border: 2px solid var(--blue); padding: 15px; }
 .pick-chip { border: 1px solid transparent; background: var(--gray); color: var(--mute); font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 999px; }
 .pick-chip.on { background: var(--blue); color: #fff; }
+.pick-chip.ext.on { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+.radio-card:not(.on) #extAll { visibility: hidden; }
+.ext-note { margin-top: 8px; }
+.gap-card { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; }
+.gap-tbl { display: grid; grid-template-columns: 1fr 140px 140px 140px; font-size: 13px; }
+.gap-tbl > span { padding: 9px 0; border-top: 1px solid var(--line); }
+.gap-tbl > span.h { color: var(--sub); font-weight: 600; border-top: 0; }
+.gap-verdict { border-radius: 10px; padding: 10px 14px; font-size: 13px; font-weight: 600; }
+.gap-verdict.warn { background: var(--org-bg); color: var(--org); }
+.gap-verdict.ok { background: var(--grn-bg); color: var(--grn); }
+.gap-verdict.info { background: var(--soft); color: var(--sub); }
 .radio-card:not(.on) .pick-chip { pointer-events: none; }
 .select, .input { border: 1px solid #D1D5DB; border-radius: 10px; padding: 11px 12px; font: inherit; background-color: #fff; color: var(--ink); }
 .select { -webkit-appearance: none; appearance: none; padding-right: 44px; cursor: pointer;

@@ -1,7 +1,7 @@
 /* 잡다 프롬프트 콘테스트 로컬 화면 */
 const MONACO = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min';
 const S = {
-  state: null, prompts: null, cases: [], stage: 'assignments', saved: {}, current: {},
+  state: null, prompts: null, cases: [], extCases: [], stage: 'assignments', saved: {}, current: {},
   side: true, diff: null, models: {}, fallback: false, decos: [], result: null,
   genScope: 'all', genPick: new Set(), genChange: null, genEst: null,
   poll: null, updTimer: null, chgTimer: null, change: null, lastSavedAt: null,
@@ -46,7 +46,7 @@ const ruleName = (id) => (S.state.rules.find((r) => r[0] === id) || [id, id])[1]
 
 /* 패널 열림 상태는 이 PC 브라우저에만 기억한다 */
 function loadUI() {
-  const def = { panel: false, open: { result: true, cases: false, remain: false } };
+  const def = { panel: false, open: { result: true, cases: false, ext: false, remain: false } };
   try { const v = JSON.parse(localStorage.getItem('contest.ui') || '{}'); return { ...def, ...v, open: { ...def.open, ...(v.open || {}) } }; } catch { return def; }
 }
 const UI = loadUI();
@@ -247,9 +247,12 @@ function renderBanners() {
   if (st.usage.error) add(st.usage.error, 'red', 'ledger');
   if (st.push && st.push.state === 'failed') add('실행 기록을 개인 브랜치에 올리지 못했어요. 다음 실행 때 다시 올려요.', 'org', 'push', '지금 다시 올리기', async () => { const r = await api('/api/push', {}); toast(r.message); refreshState(); });
 }
+function isExtRun(r) { return r && (r.set === 'ext' || r.scope === 'ext'); }
+function findCase(id) { return S.cases.find((x) => x.caseId === id) || S.extCases.find((x) => x.caseId === id); }
+function baseCaseAvg(ext) { return (ext ? S.state.ext?.baseline?.caseAvg : S.state.baseline.caseAvg) || {}; }
 function sameBase(r) {
   if (r.baselineSame != null) return r.baselineSame;
-  const ca = S.state.baseline.caseAvg || {}; const ids = r.caseIds || [];
+  const ca = baseCaseAvg(isExtRun(r)); const ids = r.caseIds || [];
   const v = ids.map((c) => ca[c]).filter((x) => x != null);
   return v.length && v.length === ids.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
 }
@@ -258,17 +261,21 @@ function renderPanel() {
   const body = $('lastBody');
   if (!r) { $('lastMeta').textContent = '아직 실행한 적이 없어요'; body.innerHTML = '<p class="sub sm">질문 생성으로 첫 결과를 만들어 보세요.</p>'; $('railResult').textContent = '-'; }
   else {
-    const full = r.evalScore != null;
-    $('lastMeta').textContent = `${fmtTime(r.finishedAt)} · 질문 ${r.cases * st.qpc}개`;
+    const full = r.evalScore != null; const ext = isExtRun(r);
+    $('lastMeta').textContent = `${fmtTime(r.finishedAt)} · ${ext ? '확장 연습 · ' : (full ? '우선 직무 전체 평가 · ' : '')}질문 ${r.cases * st.qpc}개`;
     $('railResult').textContent = full ? r.evalScore : (r.questionAvg ?? '-');
     const rf = Object.values(r.ruleFails || {}).reduce((a, b) => a + b, 0);
     const top = Object.entries(r.failCounts || {})[0];
     const head = full
       ? `<div class="kv"><span class="sub">평가 점수</span><b class="h20">${r.evalScore}</b></div>
-         <div class="kv"><span class="sub">기준 점수 (v9.0.0)</span><span class="b6">${base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정'}</span></div>`
-      : `<div class="kv"><span class="sub">질문 평균 · 케이스 ${r.cases}개</span><b class="h20">${r.questionAvg ?? '-'}</b></div>
+         <div class="kv"><span class="sub">연습 기준 (v9.0.0)</span><span class="b6">${base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정'}</span></div>`
+      : ext
+        ? `<div class="kv"><span class="sub">참고 점수 · 확장 연습 ${r.cases}케이스</span><b class="h20">${r.questionAvg ?? '-'}</b></div>
+         <div class="kv"><span class="sub">같은 케이스 v9.0.0</span><span class="b6">${r.baselineSame ?? '산출 예정'}</span></div>
+         <p class="muted xs">평가 점수와 공식 점수에는 들어가지 않아요</p>`
+        : `<div class="kv"><span class="sub">질문 평균 · 케이스 ${r.cases}개</span><b class="h20">${r.questionAvg ?? '-'}</b></div>
          <div class="kv"><span class="sub">같은 케이스 기준 (v9.0.0)</span><span class="b6">${sameBase(r) ?? '-'}</span></div>
-         <p class="muted xs">평가 점수는 전체 케이스로 실행해야 나와요</p>`;
+         <p class="muted xs">평가 점수는 우선 직무 전체 평가로 실행해야 나와요</p>`;
     body.innerHTML = `${head}<div class="divider"></div>
       ${st.rubric.map((d) => `<div class="kv"><span class="sub">${d.id} ${esc(d.name)}</span><span class="v">${r.dimAvg?.[d.id] ?? '-'} / ${d.weight}</span></div>`).join('')}
       <div class="kv"><span class="sub">규칙 진단</span><span class="sub sm b5">위반 ${rf}건</span></div>
@@ -289,9 +296,20 @@ function applyPanel() {
   document.querySelectorAll('.rail-item').forEach((b) => b.classList.toggle('on', UI.panel && !!UI.open[b.dataset.rail]));
   saveUI();
 }
+/* 확장 연습 케이스 ID는 X-P08-C1 꼴이다. 직무명 안에도 ' · '가 있어서 라벨을 자르지 않고 직무 코드로 묶는다 */
+function extPid(caseId) { return String(caseId).split('-')[1]; }
+function jobOnly(label, category) { const tail = ` · ${category}`; return category && label.endsWith(tail) ? label.slice(0, -tail.length) : label; }
+function extJobs() {
+  const seen = new Map();
+  S.extCases.forEach((c) => { const pid = extPid(c.caseId); if (!seen.has(pid)) seen.set(pid, [`${pid} ${c.job}`, c.caseId]); });
+  return [...seen.values()];
+}
 function renderCaseChips() {
   const box = $('caseChips'); box.innerHTML = '';
   S.cases.forEach((c) => { const b = document.createElement('button'); b.className = 'case-chip'; b.textContent = c.label; b.onclick = () => openCase(c.caseId); box.appendChild(b); });
+  const ex = $('extChips'); ex.innerHTML = '';
+  $('extCount').textContent = S.extCases.length;
+  extJobs().forEach(([label, id]) => { const b = document.createElement('button'); b.className = 'case-chip'; b.textContent = label; b.onclick = () => openCase(id); ex.appendChild(b); });
 }
 /* ---------------- 시작 준비 카드 ---------------- */
 function setupDismissed() { try { return localStorage.getItem('contest.setupDone') === '1'; } catch { return false; } }
@@ -361,6 +379,8 @@ async function openGen(prefill) {
   const st = S.state;
   S.genScope = prefill?.scope || 'all';
   S.genPick = new Set(prefill?.scope === 'pick' ? prefill.cases : []);
+  S.genExt = new Set(prefill?.scope === 'ext' ? prefill.cases : []);
+  $('scopeAllSub').textContent = st.baseline.ready ? `평가 점수가 나오고 연습 기준 ${st.baseline.mean}과 비교해요.` : '평가 점수가 나와요.';
   const ms = $('genModel'); ms.innerHTML = '';
   Object.keys(st.models).forEach((m) => ms.add(new Option(m, m)));
   if (st.allowCustomModel) ms.add(new Option('직접 입력', '__custom'));
@@ -374,6 +394,13 @@ async function openGen(prefill) {
     b.onclick = (e) => { e.preventDefault(); S.genPick.has(c.caseId) ? S.genPick.delete(c.caseId) : S.genPick.add(c.caseId); b.classList.toggle('on'); renderGen(); };
     pc.appendChild(b);
   });
+  const xc = $('extPickChips'); xc.innerHTML = '';
+  S.extCases.forEach((c) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = `pick-chip ext ${S.genExt.has(c.caseId) ? 'on' : ''}`; b.textContent = c.label; b.dataset.id = c.caseId;
+    b.onclick = (e) => { e.preventDefault(); S.genExt.has(c.caseId) ? S.genExt.delete(c.caseId) : S.genExt.add(c.caseId); b.classList.toggle('on'); renderGen(); };
+    xc.appendChild(b);
+  });
+  $('scopeExt').classList.toggle('hidden', !S.extCases.length);
   document.querySelectorAll('input[name=scope]').forEach((r) => { r.checked = r.value === S.genScope; });
   $('genErr').classList.add('hidden');
   S.genChange = null;
@@ -389,8 +416,8 @@ function fillEfforts(pref) {
   $('genCustomModel').classList.toggle('hidden', m !== '__custom');
 }
 async function renderGen() {
-  const st = S.state; const n = S.genScope === 'all' ? S.cases.length : S.genPick.size; const q = n * st.qpc;
-  $('scopeAll').classList.toggle('on', S.genScope === 'all'); $('scopePick').classList.toggle('on', S.genScope === 'pick');
+  const st = S.state; const n = S.genScope === 'all' ? S.cases.length : (S.genScope === 'ext' ? S.genExt.size : S.genPick.size); const q = n * st.qpc;
+  $('scopeAll').classList.toggle('on', S.genScope === 'all'); $('scopePick').classList.toggle('on', S.genScope === 'pick'); $('scopeExt').classList.toggle('on', S.genScope === 'ext');
   $('sumQ').textContent = `질문 ${q}개`;
   const after = st.usage.remaining - q;
   $('sumRemain').textContent = `${after} / ${st.usage.limit}`; $('sumRemain').className = after < 0 ? 'red' : 'blue';
@@ -416,7 +443,7 @@ async function startGen() {
   if (S.genChange && !S.genChange.ok) return;
   if (isDirty() && !(await saveAll())) return;
   const m = $('genModel').value; const model = m === '__custom' ? $('genCustomModel').value.trim() : m;
-  const body = { scope: S.genScope, cases: [...S.genPick], model, effort: $('genEffort').value };
+  const body = { scope: S.genScope, cases: [...(S.genScope === 'ext' ? S.genExt : S.genPick)], model, effort: $('genEffort').value };
   $('genStart').disabled = true;
   try {
     const snap = await api('/api/run', body);
@@ -479,6 +506,11 @@ function doneLine(res) {
     return `평가 점수 ${res.evalScore} · 기준 ${base.mean}보다 ${Math.abs(d)}점 ${d >= 0 ? '높아요' : '낮아요'}`;
   }
   const same = res.baselineSame ?? sameBase({ ...res, caseIds: res.cases });
+  if (isExtRun(res)) {
+    if (same == null || res.questionAvg == null) return `참고 점수 ${res.questionAvg ?? '-'} (확장 연습 ${res.cases.length}케이스)`;
+    const d = Math.round((res.questionAvg - same) * 10) / 10;
+    return `참고 점수 ${res.questionAvg} · 같은 케이스 v9.0.0보다 ${Math.abs(d)}점 ${d >= 0 ? '높아요' : '낮아요'}`;
+  }
   return `질문 평균 ${res.questionAvg ?? '-'} (케이스 ${res.cases.length}개)${same != null ? ` · 같은 케이스 기준 ${same}` : ''}`;
 }
 function renderSnackDone(res) {
@@ -521,7 +553,8 @@ async function onFinished(r) {
   if (r.status === 'stopped') { renderSnackProblem('생성을 멈췄어요', `질문 ${res.charged}개가 남은 질문에서 빠졌어요. 평가 점수는 계산하지 않았어요.`, ICON.stop); return; }
   const failed = res.items.filter((c) => c.genError || c.judgeError);
   if (failed.length) {
-    renderSnackProblem('생성하지 못한 케이스가 있어요', `${failed.map((c) => c.label.split(' ')[0]).join('·')} 케이스가 실패해 평가 점수를 계산하지 못했어요. 만든 질문 수는 남은 질문에서 빠졌어요. 다시 실행해 주세요.`, ICON.alert);
+    const what = isExtRun(res) ? '참고 점수에서 빠졌어요' : '평가 점수를 계산하지 못했어요';
+    renderSnackProblem('생성하지 못한 케이스가 있어요', `${[...new Set(failed.map((c) => (String(c.caseId).startsWith('X-') ? c.caseId : c.label.split(' ')[0])))].join('·')} 케이스가 실패해 ${what}. 만든 질문 수는 남은 질문에서 빠졌어요. 다시 실행해 주세요.`, ICON.alert);
     return;
   }
   renderSnackDone(res);
@@ -555,22 +588,28 @@ async function loadResult(id) {
 }
 function scoreClass(v) { return v == null ? '' : v >= 80 ? 'score-good' : v < 70 ? 'score-bad' : ''; }
 function renderResult(r) {
-  const st = S.state; const n = r.cases.length; const base = st.baseline; const full = r.evalScore != null;
-  $('rScope').textContent = r.scope === 'all' ? `한 사이클 · 질문 ${n * st.qpc}개` : `케이스 ${n}개 · 질문 ${n * st.qpc}개`;
+  const st = S.state; const n = r.cases.length; const ext = isExtRun(r); const base = ext ? (st.ext?.baseline || {}) : st.baseline; const full = r.evalScore != null;
+  $('rScope').textContent = ext ? `확장 연습 · 케이스 ${n}개 · 질문 ${n * st.qpc}개` : (r.scope === 'all' ? `우선 직무 전체 평가 · 질문 ${n * st.qpc}개` : `우선 직무 케이스 ${n}개 · 질문 ${n * st.qpc}개`);
   $('rMeta').textContent = `${fmtTime(r.finishedAt)} · ${r.model} · ${r.effort || ''} · 저장 커밋 ${r.head || '-'}${r.status === 'stopped' ? ' · 중지됨' : ''}`;
   $('rFile').textContent = `runs/${r.runId}.json에 기록됨`;
   const ps = st.push || {}; const pmap = { pushed: ['개인 브랜치에 올라감', 'chip-green'], failed: ['푸시 실패 · 다음 실행 때 다시 올려요', 'chip-orange'], pushing: ['올리는 중', 'chip-blue'], 'no-remote': ['원격 없음 · 커밋만 함', 'chip-gray'] };
   const pp = pmap[ps.state]; $('rPush').classList.toggle('hidden', !pp); if (pp) { $('rPush').textContent = pp[0]; $('rPush').className = `chip sm ${pp[1]}`; }
   const same = sameBase({ ...r, caseIds: r.cases });
-  $('rScoreLabel').textContent = full ? '평가 점수' : `질문 평균 · 케이스 ${n}개`;
+  $('rScoreLabel').textContent = full ? '평가 점수' : (ext ? '참고 점수' : `질문 평균 · 케이스 ${n}개`);
   const shown = full ? r.evalScore : r.questionAvg;
-  $('rScore').textContent = shown ?? '–'; $('rScore').className = `h44 ${scoreClass(shown)}`;
-  $('rBaseLabel').textContent = full ? '기준 점수 (v9.0.0)' : '같은 케이스 기준 (v9.0.0)';
+  $('rScore').textContent = shown ?? '–'; $('rScore').className = `h44 ${ext ? '' : scoreClass(shown)}`;
+  $('rBaseLabel').textContent = full ? '연습 기준 (v9.0.0)' : (ext ? '같은 케이스 v9.0.0' : '같은 케이스 기준 (v9.0.0)');
   $('rBase').textContent = full ? (base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정') : (same ?? '산출 예정');
   $('rScoreNote').textContent = full
-    ? '질문 20개 AI 채점 평균이에요(연습 점수). 기준 점수는 v9.0.0을 공개 10개로 3회 잰 평균이에요. 패널티 기준은 공식 세트로 잰 v9.0.0 점수이고, 공식 점수와 비교해요.'
-    : `${r.evalNote || ''} 비교는 같은 케이스의 기준선 평균과 해요.`;
-  $('rVariance').textContent = base.ready ? `같은 프롬프트도 실행마다 점수가 달라질 수 있어요(기준선 흔들림 폭 ${base.spread}).` : '';
+    ? `우선 직무 10케이스 질문 ${n * st.qpc}개의 AI 채점 평균이에요. 연습 기준은 v9.0.0을 같은 10케이스로 3회 잰 평균이에요.`
+    : ext
+      ? `확장 연습 ${n}케이스 · 질문 ${n * st.qpc}개의 AI 채점 평균이에요. 평가 점수와 공식 점수에는 들어가지 않아요.`
+      : `${r.evalNote || ''} 비교는 같은 케이스의 기준선 평균과 해요.`;
+  $('rVariance').textContent = base.ready && base.spread != null ? `같은 프롬프트도 실행마다 점수가 달라질 수 있어요(기준선 흔들림 폭 ${base.spread}).` : '';
+  renderGap(r);
+  $('rFoot').textContent = ext
+    ? '질문 점수 = J1 + J2 + J3 + J4 (100점) · 참고 점수 = 확장 연습 질문 점수의 평균 · 평가 점수와 공식 점수에는 들어가지 않아요.'
+    : '질문 점수 = J1 + J2 + J3 + J4 (100점) · 평가 점수 = 우선 직무 질문 20개 점수의 평균 · 연습 점수예요. 공식 점수는 운영자 PC에서 제출본 프롬프트로 다시 매겨요.';
   const fails = Object.entries(r.failCounts || {});
   const failText = fails.length ? fails.map(([k, v]) => `${k} ${failName(k)} ×${v}`).join(' · ') : '실패 유형 없음';
   $('rDims').innerHTML = st.rubric.map((d) => {
@@ -591,18 +630,44 @@ function renderResult(r) {
   if (S.drawerCase) markDrawer();
   $('rTable').querySelectorAll('[data-raw]').forEach((b) => { b.onclick = () => { $(`raw-${b.dataset.raw}`).classList.toggle('hidden'); }; });
 }
+/* 처음 보는 케이스 점검: 우선 직무와 확장 연습에서 v9.0.0보다 오른 폭을 나란히 본다 */
+function renderGap(r) {
+  const box = $('rGap'); const g = r.gapCheck;
+  if (!isExtRun(r) || !g) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  const sign = (d) => (d == null ? '-' : `${d >= 0 ? '+' : ''}${d}`);
+  const row = (name, x, cls) => `<span>${name}</span><span>${x ? x.base : '-'}</span><span>${x ? x.score : '-'}</span><span class="b6 ${cls}">${x ? sign(x.delta) : '-'}</span>`;
+  const coreName = g.core ? `우선 직무 전체 평가 <span class="muted xs">(최근 ${esc(fmtTime(g.core.finishedAt))})</span>` : '우선 직무 전체 평가';
+  const msgs = {
+    core_only: ['warn', '우선 직무에서만 크게 올랐어요. 공개 케이스에 맞춰졌는지 확인해 보세요. 공식 평가에는 처음 보는 케이스가 들어가요.'],
+    similar: ['ok', '두 묶음에서 비슷하게 올랐어요.'],
+    no_core: ['info', '우선 직무 전체 평가를 한 번 돌리면 비교할 수 있어요.'],
+    no_ext: ['info', S.state.ext?.baseline?.ready ? '모든 케이스를 채점하지 못해 이번에는 비교하지 않았어요.' : '확장 연습 기준(v9.0.0)이 준비되면 비교할 수 있어요.'],
+  };
+  const [tone, msg] = msgs[g.verdict] || msgs.no_ext;
+  const coreCls = g.core && g.core.delta >= 0 ? 'green' : 'org';
+  const extCls = g.ext && g.ext.delta >= 0 ? (g.verdict === 'core_only' ? '' : 'green') : 'org';
+  box.innerHTML = `<div class="row gap10 center"><b class="h15">처음 보는 케이스 점검</b><span class="chip chip-gray sm">v9.0.0보다 몇 점 올랐는지 두 묶음 비교</span></div>
+    <div class="gap-tbl"><span class="h">묶음</span><span class="h">v9.0.0</span><span class="h">내 점수</span><span class="h">올라간 점수</span>
+      ${row(coreName, g.core, coreCls)}${row('확장 연습 (이번)', g.ext, extCls)}</div>
+    <div class="gap-verdict ${tone}">${esc(msg)}</div>
+    ${g.samePrompt === false ? '<p class="muted xs">우선 직무 전체 평가 뒤에 ③ 프롬프트가 바뀌었어요. 같은 프롬프트로 둘 다 돌려야 정확히 비교돼요.</p>' : ''}`;
+  box.classList.remove('hidden');
+}
 function caseRow(c, open) {
   const codes = {}; c.items.forEach((it) => (it.failCodes || []).forEach((k) => { codes[k] = (codes[k] || 0) + 1; }));
   const ct = Object.entries(codes).map(([k, v]) => `${k} ×${v}`).join(' · ') || '없음';
   const ran = !!(c.outputText || c.genError);
   const rules = !ran || c.genError ? '-' : (c.checks.failed?.length ? c.checks.failed.map((k) => `${k} ×1`).join(' · ') : '위반 0');
   const avg = c.genError ? '실패' : (c.avg ?? '-');
-  const b = c.baselineAvg ?? (S.state.baseline.caseAvg || {})[c.caseId];
+  const ext = String(c.caseId).startsWith('X-');
+  const b = c.baselineAvg ?? baseCaseAvg(ext)[c.caseId];
+  const cls = ext ? (c.avg == null || b == null ? '' : (c.avg - b >= 3 ? 'score-good' : (c.avg - b <= -1 ? 'score-bad' : ''))) : scoreClass(c.avg);
+  const label = ext ? jobOnly(c.label, c.category) : c.label;
   const drIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg>';
   return `<div class="tr ${open ? 'open' : ''}" id="row-${c.caseId}">
-    <span class="case-cell"><b>${esc(c.label)}</b><button class="dr-btn" data-drawer="${c.caseId}" title="공고·지원자 정보 보기">${drIcon}</button></span>
+    <span class="case-cell"><b>${esc(label)}</b><button class="dr-btn" data-drawer="${c.caseId}" title="공고·지원자 정보 보기">${drIcon}</button></span>
     <span class="sub">${esc(c.who)}</span><span>${esc(c.category)}</span>
-    <span><b class="${scoreClass(c.avg)}">${avg}</b>${b != null ? `<span class="muted xs"> · 기준 ${b}</span>` : ''}</span>
+    <span><b class="${cls}">${avg}</b>${b != null ? `<span class="muted xs"> · 기준 ${b}</span>` : ''}</span>
     <span class="sm b5 ${ct === '없음' || !ran ? 'muted' : 'org'}">${ran ? ct : '-'}</span>
     <span class="sm b5 ${rules === '위반 0' || rules === '-' ? 'muted' : 'org'}">${rules}</span>
     <button class="toggle" data-toggle="${c.caseId}">${open ? '접기 ▴' : '펼치기 ▾'}</button></div>
@@ -638,7 +703,7 @@ function markDrawer() {
   document.querySelectorAll('.dr-btn').forEach((b) => b.classList.toggle('on', b.dataset.drawer === S.drawerCase));
 }
 function openDrawer(caseId) {
-  const c = S.cases.find((x) => x.caseId === caseId); if (!c) return;
+  const c = findCase(caseId); if (!c) return;
   S.drawerCase = caseId;
   const p = c.position; const li = (arr) => `<ul>${(arr || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
   const careers = (c.careers || []).map((k) => `<div class="h">경력 · ${esc(k.company)} ${esc(k.jobTitle || '')} ${esc(k.employmentType || '')} · ${esc(k.period || '')}</div><div>${esc(k.summaryLine || '')}</div>`).join('');
@@ -731,10 +796,15 @@ async function checkKey() {
   await refreshState(); openSettings();
 }
 function openCase(caseId) {
-  const c = S.cases.find((x) => x.caseId === caseId) || S.cases[0];
-  $('cSub').textContent = `${c.caseId} · 골든셋을 보며 프롬프트를 맞추는 것은 지양해요`;
+  const c = findCase(caseId) || S.cases[0];
+  const ext = String(c.caseId).startsWith('X-');
+  const job = ext ? `${extPid(c.caseId)} ${c.job}` : c.label;
+  // 확장 연습은 직무 하나에 평가 주제가 두 개라 같은 직무 케이스를 함께 보여 준다
+  const topics = ext ? S.extCases.filter((x) => extPid(x.caseId) === extPid(c.caseId)) : [c];
+  $('cSub').textContent = `${ext ? `확장 연습 · ${topics.map((x) => x.caseId).join(', ')}` : c.caseId} · 골든셋을 보며 프롬프트를 맞추는 것은 지양해요`;
   const chips = $('cChips'); chips.innerHTML = '';
-  S.cases.forEach((x) => { const b = document.createElement('button'); b.className = 'case-chip'; if (x.caseId === c.caseId) { b.style.background = 'var(--blue)'; b.style.color = '#fff'; } b.textContent = x.label; b.onclick = () => openCase(x.caseId); chips.appendChild(b); });
+  const list = ext ? extJobs().map(([label, id]) => ({ caseId: id, label })) : S.cases;
+  list.forEach((x) => { const b = document.createElement('button'); b.className = 'case-chip'; const on = ext ? x.label === job : x.caseId === c.caseId; if (on) { b.style.background = 'var(--blue)'; b.style.color = '#fff'; } b.textContent = x.label; b.onclick = () => openCase(x.caseId); chips.appendChild(b); });
   const p = c.position; const li = (arr) => `<ul>${(arr || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
   const careers = (c.careers || []).map((k) => `<div class="h">경력 · ${esc(k.company)} ${esc(k.jobTitle || '')} ${esc(k.employmentType || '')} · ${esc(k.period || '')}</div><div class="sm">${esc(k.summaryLine || '')}</div>`).join('');
   const projects = (c.projects || []).map((k) => `<div class="h">프로젝트 · ${esc(k.name)} · ${esc(k.organization || '')} · ${esc(k.teamType || '')}</div><div class="sm">${esc(k.description || '')}</div>`).join('');
@@ -748,10 +818,10 @@ function openCase(caseId) {
         <div class="sm">${esc(c.persona)}</div>${careers}${projects}${acts}${notes ? `<div class="h">메모</div>${notes}` : ''}
         ${c.resume ? `<details><summary>이력서 요약 보기</summary><div class="sm" style="margin-top:8px">${esc(c.resume)}</div></details>` : ''}</div>
     </div>
-    <div class="topic-box"><div class="row gap8 center"><span class="chip chip-solid-blue sm">평가 주제</span><b class="h18">${esc(c.category.name)}</b></div>
-      <div class="sm">${esc(c.category.definition)}</div>
-      ${c.items.map((it, i) => `<div class="it"><b class="sm">요소 ${i + 1} · ${esc(it.name)}</b><div class="sub sm">${esc(it.definition)}</div></div>`).join('')}
-      ${c.forbidden?.length ? `<b class="org sm">질문에 쓰면 안 되는 말 · ${c.forbidden.map(esc).join(' · ')}</b>` : ''}</div>`;
+    ${topics.map((t) => `<div class="topic-box"><div class="row gap8 center"><span class="chip chip-solid-blue sm">평가 주제</span><b class="h18">${esc(t.category.name)}</b>${ext ? `<span class="muted xs">${esc(t.caseId)}</span>` : ''}</div>
+      <div class="sm">${esc(t.category.definition)}</div>
+      ${t.items.map((it, i) => `<div class="it"><b class="sm">요소 ${i + 1} · ${esc(it.name)}</b><div class="sub sm">${esc(it.definition)}</div></div>`).join('')}
+      ${t.forbidden?.length ? `<b class="org sm">질문에 쓰면 안 되는 말 · ${t.forbidden.map(esc).join(' · ')}</b>` : ''}</div>`).join('')}`;
   openModal('caseModal');
 }
 
@@ -804,6 +874,13 @@ function bind() {
     if (a === 'close') hideSnack();
   });
   document.querySelectorAll('input[name=scope]').forEach((r) => { r.onchange = () => { S.genScope = r.value; renderGen(); }; });
+  $('extAll').onclick = (e) => {
+    e.preventDefault(); S.genScope = 'ext';
+    S.genExt = new Set(S.extCases.map((c) => c.caseId));
+    document.querySelectorAll('#extPickChips .pick-chip').forEach((b) => b.classList.toggle('on', S.genExt.has(b.dataset.id)));
+    document.querySelectorAll('input[name=scope]').forEach((r) => { r.checked = r.value === 'ext'; });
+    renderGen();
+  };
   $('genModel').onchange = () => fillEfforts($('genEffort').value);
   $('genStart').onclick = startGen;
   $('rerunBtn').onclick = () => { const r = S.result; openGen(r ? { scope: r.scope, cases: r.cases, model: r.model, effort: r.effort } : null); };
@@ -819,7 +896,7 @@ function bind() {
 async function init() {
   bind();
   try {
-    [S.state, S.prompts, S.cases] = await Promise.all([api('/api/state'), api('/api/prompts'), api('/api/cases')]);
+    [S.state, S.prompts, S.cases, S.extCases] = await Promise.all([api('/api/state'), api('/api/prompts'), api('/api/cases'), api('/api/cases/ext').catch(() => [])]);
   } catch (e) { showBanner(`화면 데이터를 불러오지 못했어요: ${e.message}`, 'red'); return; }
   $('brandTitle').textContent = S.state.title;
   for (const id of Object.keys(S.prompts)) { S.saved[id] = S.prompts[id].mine; S.current[id] = S.prompts[id].mine; }
