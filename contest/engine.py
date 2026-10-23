@@ -110,7 +110,7 @@ class Run:
         rec["checks"] = check_assignments(rec["outputText"], case, position).to_dict()
         self.progress[cid]["check"] = "done"
         obj, _ = parse_json(rec["outputText"])
-        if obj is None:
+        if obj is None or rec["checks"].get("disqualified"):
             self.progress[cid]["judge"] = "skip"
             self.records[cid] = rec
             return
@@ -122,7 +122,7 @@ class Run:
             try:
                 jr = client.complete(j["model"], sys_p, user_p, reasoning_effort=j["effort"], json_mode=True,
                                      max_output_tokens=j["max_output_tokens"])
-                parsed = parse_judge(jr["text"], self.rubrics)
+                parsed = parse_judge(jr["text"], self.rubrics, [it["itemId"] for it in core.case_items(case)])
                 if parsed["ok"]:
                     rec["judge"] = parsed
                     rec["judgeUsage"] = jr.get("usage")
@@ -177,7 +177,7 @@ class Run:
     def _aggregate(self, duration: float, stopped: bool) -> dict:
         baseline = core.load_baseline()
         dims = core.CFG["rubric_display"]
-        cases_out, all_totals, judge_missing, infra_error = [], [], False, False
+        cases_out, all_totals, judge_missing, infra_error, disqualified = [], [], False, False, False
         fail_counts, rule_fails = Counter(), Counter()
         dim_vals: dict[str, list[float]] = {d["id"]: [] for d in dims}
         usage = {"input": 0, "output": 0, "reasoning": 0}
@@ -189,7 +189,6 @@ class Run:
             out_obj, _ = parse_json(rec.get("outputText", "")) if rec.get("outputText") else (None, None)
             ivs = {iv.get("itemId"): iv for iv in (out_obj or {}).get("interviews", []) if isinstance(iv, dict)} if isinstance(out_obj, dict) else {}
             judged = {it.get("itemId"): it for it in (rec.get("judge") or {}).get("items", [])}
-            judged_list = (rec.get("judge") or {}).get("items", [])
             checks = rec.get("checks") or {}
             for fid in checks.get("failed", []):
                 rule_fails[fid] += 1
@@ -199,10 +198,10 @@ class Run:
                         usage[k] += u.get(k, 0) or 0
                     cost += estimate_cost_usd(u, m, prices)
             items_out = []
-            for i, it in enumerate(core.case_items(case)):
+            for it in core.case_items(case):
                 iid = it["itemId"]
                 iv = ivs.get(iid) or {}
-                jd = judged.get(iid) or (judged_list[i] if i < len(judged_list) else None)
+                jd = judged.get(iid)
                 note = None
                 if cid not in self.attempted:
                     total, note = None, "실행하지 않음"
@@ -210,6 +209,8 @@ class Run:
                     total, note, infra_error = None, "생성 실패(네트워크·API)", True
                 elif out_obj is None:
                     total, note = 0.0, "출력이 JSON이 아니에요"
+                elif checks.get("disqualified"):
+                    total, note, disqualified = 0.0, "내부 값 노출(A00)로 실격이에요", True
                 elif not iv.get("question"):
                     total, note = 0.0, "이 평가 요소의 질문이 출력에 없어요"
                 elif jd is None or jd.get("total") is None:
@@ -254,11 +255,13 @@ class Run:
                 "judgeComment": (rec.get("judge") or {}).get("comment"),
                 "outputText": rec.get("outputText"),
             })
-        full = self.scope == "all" and not stopped and not judge_missing and not infra_error
+        full = self.scope == "all" and not stopped and not judge_missing and not infra_error and not disqualified
         same = [baseline["caseAvg"][c] for c in self.case_ids if c in baseline["caseAvg"]]
         eval_score = round(sum(all_totals) / len(all_totals), 1) if full and all_totals else None
         reason = None
-        if self.scope != "all":
+        if disqualified:
+            reason = "질문이나 답변 팁에 내부 값(키 이름·ID)이 나와 A00 규칙으로 실격이에요. 평가 점수는 계산하지 않았어요."
+        elif self.scope != "all":
             reason = "특정 케이스만 실행해서 평가 점수는 계산하지 않았어요."
         elif stopped:
             reason = "중간에 멈춰서 평가 점수는 계산하지 않았어요."
