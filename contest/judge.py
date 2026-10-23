@@ -121,9 +121,11 @@ def parse_judge(text: str, rubrics: dict, expected_ids: list[str] | None = None)
         return {"ok": False, "error": "채점 결과가 JSON 객체가 아니에요"}
     raw_items = [it for it in obj.get("items") or [] if isinstance(it, dict)]
     if expected_ids is not None:
+        # 기대한 itemId마다 채점이 정확히 하나씩 있어야 한다. 그 밖의 항목은 버린다(순서로 짝짓지 않는다).
         got = [it.get("itemId") for it in raw_items]
-        if sorted(got) != sorted(expected_ids):
+        if any(got.count(i) != 1 for i in expected_ids):
             return {"ok": False, "error": f"채점 itemId 불일치: {got} vs {expected_ids}"}
+        raw_items = [it for it in raw_items if it.get("itemId") in expected_ids]
     dims = rubric_stage["dimensions"]
     items = []
     for it in raw_items:

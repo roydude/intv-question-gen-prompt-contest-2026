@@ -110,7 +110,14 @@ class Run:
         rec["checks"] = check_assignments(rec["outputText"], case, position).to_dict()
         self.progress[cid]["check"] = "done"
         obj, _ = parse_json(rec["outputText"])
-        if obj is None or rec["checks"].get("disqualified"):
+        expected = [it["itemId"] for it in core.case_items(case)]
+        raw_ivs = obj.get("interviews") if isinstance(obj, dict) else None
+        out_ids = [iv.get("itemId") for iv in raw_ivs if isinstance(iv, dict)] if isinstance(raw_ivs, list) else []
+        # 질문이 평가 요소보다 많거나 같은 평가 요소 질문이 두 번 나오면 그 케이스는 0점이라 채점하지 않는다
+        if len(out_ids) != len(set(out_ids)) or any(i not in expected for i in out_ids):
+            rec["structureError"] = f"출력 itemId {out_ids} · 평가 요소 {expected}"
+        present = [i for i in expected if i in out_ids]
+        if obj is None or rec["checks"].get("disqualified") or rec.get("structureError") or not present:
             self.progress[cid]["judge"] = "skip"
             self.records[cid] = rec
             return
@@ -122,7 +129,7 @@ class Run:
             try:
                 jr = client.complete(j["model"], sys_p, user_p, reasoning_effort=j["effort"], json_mode=True,
                                      max_output_tokens=j["max_output_tokens"])
-                parsed = parse_judge(jr["text"], self.rubrics, [it["itemId"] for it in core.case_items(case)])
+                parsed = parse_judge(jr["text"], self.rubrics, present)
                 if parsed["ok"]:
                     rec["judge"] = parsed
                     rec["judgeUsage"] = jr.get("usage")
@@ -177,7 +184,7 @@ class Run:
     def _aggregate(self, duration: float, stopped: bool) -> dict:
         baseline = core.load_baseline()
         dims = core.CFG["rubric_display"]
-        cases_out, all_totals, judge_missing, infra_error, disqualified = [], [], False, False, False
+        cases_out, all_totals, judge_missing, infra_error = [], [], False, False
         fail_counts, rule_fails = Counter(), Counter()
         dim_vals: dict[str, list[float]] = {d["id"]: [] for d in dims}
         usage = {"input": 0, "output": 0, "reasoning": 0}
@@ -210,7 +217,9 @@ class Run:
                 elif out_obj is None:
                     total, note = 0.0, "출력이 JSON이 아니에요"
                 elif checks.get("disqualified"):
-                    total, note, disqualified = 0.0, "내부 값 노출(A00)로 실격이에요", True
+                    total, note = 0.0, "내부 값 노출(A00)이 있어 이 케이스는 0점이에요"
+                elif rec.get("structureError"):
+                    total, note = 0.0, "질문이 평가 요소보다 많거나 같은 평가 요소 질문이 두 번 나와 이 케이스는 0점이에요"
                 elif not iv.get("question"):
                     total, note = 0.0, "이 평가 요소의 질문이 출력에 없어요"
                 elif jd is None or jd.get("total") is None:
@@ -255,13 +264,11 @@ class Run:
                 "judgeComment": (rec.get("judge") or {}).get("comment"),
                 "outputText": rec.get("outputText"),
             })
-        full = self.scope == "all" and not stopped and not judge_missing and not infra_error and not disqualified
+        full = self.scope == "all" and not stopped and not judge_missing and not infra_error
         same = [baseline["caseAvg"][c] for c in self.case_ids if c in baseline["caseAvg"]]
         eval_score = round(sum(all_totals) / len(all_totals), 1) if full and all_totals else None
         reason = None
-        if disqualified:
-            reason = "질문이나 답변 팁에 내부 값(키 이름·ID)이 나와 A00 규칙으로 실격이에요. 평가 점수는 계산하지 않았어요."
-        elif self.scope != "all":
+        if self.scope != "all":
             reason = "특정 케이스만 실행해서 평가 점수는 계산하지 않았어요."
         elif stopped:
             reason = "중간에 멈춰서 평가 점수는 계산하지 않았어요."

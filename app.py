@@ -256,7 +256,7 @@ def cmd_generate(args) -> int:
     if r.get("failCounts"):
         _p("  실패 유형   " + ", ".join(f"{k}×{v}" for k, v in r["failCounts"].items()))
     if r.get("ruleFails"):
-        _p("  규칙 진단   " + ", ".join(f"{k}×{v}" for k, v in r["ruleFails"].items()) + " (점수 미반영)")
+        _p("  규칙 진단   " + ", ".join(f"{k}×{v}" for k, v in r["ruleFails"].items()) + " (A00과 질문 수·중복 오류만 케이스 0점)")
     ps = recorder.wait_push(60)
     _p(f"  기록        {ps.get('message')}")
     u = recorder.usage()
