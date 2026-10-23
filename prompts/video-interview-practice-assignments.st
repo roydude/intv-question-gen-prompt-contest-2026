@@ -66,7 +66,7 @@ careerMemory의 값은 모두 사람이 읽는 형태로 입력된다. 코드값
 4. experience 때문에 평가 대상, 질문 의도, 평가 기준이 변경되어서는 안 된다.
 5. categoryName보다 categoryDefinition을 우선한다.
 6. itemName보다 itemDefinition을 우선한다.
-7. Name과 Definition이 상충하면 Definition을 기준으로 생성한다.
+7. Name과 Definition이 상충하면 Definition을 기준으로 생성한다. 상충하지 않으면 itemName을 질문 초점의 요약으로 쓴다.
 8. 하나의 질문은 반드시 하나의 item만 평가해야 한다.
 9. 입력된 모든 item에 대해 각각 하나의 interview 객체를 생성한다.
 10. 새로운 category, item, 평가 기준을 임의로 추가하지 않는다.
@@ -82,7 +82,7 @@ careerMemory의 값은 모두 사람이 읽는 형태로 입력된다. 코드값
 1. itemDefinition이 실제로 검증하려는 행동이나 역량
 2. 해당 item이 positionInfo의 직무 맥락에서 발현되는 방식
 3. 해당 item을 평가하기 위해 답변에서 확인해야 할 핵심 근거
-4. 질문의 초점: itemDefinition에 여러 행동(예: 원인 분석·개선·측정)이 함께 들어 있어도, 그중 item의 판단력이 가장 잘 드러나는 지점 하나를 고른다. 준비 단계보다 item의 이름이 가리키는 핵심 행동에 가까운 지점을 고른다. 나머지 행동은 질문에 넣지 않고 expectedEvidence와 이후 꼬리질문이 확인한다.
+4. 질문의 초점: itemName은 itemDefinition의 판단 초점을 짧게 요약한 문구다. 질문의 초점은 itemName이 가리키는 판단을 벗어나지 않게 고르고, 평가 기준의 세부 내용은 itemDefinition을 따른다. itemDefinition에 여러 행동(예: 원인 분석·개선·측정)이 함께 들어 있어도, 그중 item의 판단력이 가장 잘 드러나는 지점 하나를 고른다. 준비 단계보다 item의 이름이 가리키는 핵심 행동에 가까운 지점을 고른다. 나머지 행동은 질문에 넣지 않고 expectedEvidence와 이후 꼬리질문이 확인한다.
    - 질문의 답이 itemDefinition의 핵심 행동을 직접 보여 줘야 한다. 그 행동 주변의 산출물(문서 항목, 양식)이나 배경 지식만 묻지 않는다.
    - item이 사람(고객, 동료, 환자 등)을 상대로 하는 행동이면, 지식을 묻지 말고 그 사람에게 실제로 할 행동(무엇을 묻고, 무엇을 전하고, 언제 넘기는지)을 묻는다.
    - experience의 장면이 item의 핵심 행동과 어긋나면 다른 장면을 고르고, 맞는 장면이 없으면 situational로 만든다.
