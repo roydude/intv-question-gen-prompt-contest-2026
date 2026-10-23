@@ -5,6 +5,7 @@
   "limit_questions": 400,
   "questions_per_case": 2,
   "submit_min_change": 0.03,
+  "gap_warn": 5,
   "branch_prefix": "contest/",
   "api": "responses",
   "base_url": "https://api.openai.com/v1",

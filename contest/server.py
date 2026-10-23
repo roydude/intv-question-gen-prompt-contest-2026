@@ -44,21 +44,24 @@ def _state() -> dict:
         "latest": results[-1] if results else None,
         "latestFull": next((r for r in reversed(results) if r.get("evalScore") is not None), None),
         "baseline": {k: v for k, v in core.load_baseline().items() if k != "questions"},
+        "ext": {"count": len(core.load_ext_cases()),
+                "baseline": {k: v for k, v in core.load_baseline_ext().items() if k != "questions"}},
         "push": dict(recorder.PUSH_STATE),
         "workers": cfg.get("workers", 5),
         "submit": core.submit_check(),
     }
 
 
-def _cases() -> list[dict]:
+def _cases(ext: bool = False) -> list[dict]:
     positions = core.load_positions()
     out = []
-    for c in core.load_cases():
+    for c in (core.load_ext_cases() if ext else core.load_cases()):
         p = positions[c["positionId"]]
         cm = (c.get("experience") or {}).get("careerMemory") or {}
         cat = c["categoriesOverride"][0]
         out.append({
             "caseId": c["caseId"],
+            "set": "ext" if ext else "core",
             "label": core.case_label(c, positions),
             "job": p.get("jobTitleName"),
             "who": c.get("scenarioLabel", ""),
@@ -156,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_prompts())
         if path == "/api/cases":
             return self._json(_cases())
+        if path == "/api/cases/ext":
+            return self._json(_cases(ext=True))
         if path == "/api/run/current":
             run = engine.CURRENT["run"]
             return self._json(run.snapshot() if run else None)

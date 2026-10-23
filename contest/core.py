@@ -31,7 +31,22 @@ CFG = load_config()
 # 골든셋
 # ---------------------------------------------------------------------------
 def load_cases() -> list[dict]:
+    """우선 직무 공통 케이스 10개. 평가 점수(우선 직무 전체 평가)는 이 묶음으로만 계산한다."""
     return json.loads((GOLDEN_DIR / "cases_common.json").read_text(encoding="utf-8"))["cases"]
+
+
+EXT_CASES = GOLDEN_DIR / "cases_extension.json"
+
+
+def load_ext_cases() -> list[dict]:
+    """확장 연습 케이스(우선 직무에 없는 직무 10개 × 평가 주제 2개). 평가 점수·공식 점수에는 쓰지 않는다."""
+    if not EXT_CASES.exists():
+        return []
+    return json.loads(EXT_CASES.read_text(encoding="utf-8"))["cases"]
+
+
+def is_ext_case(case_id: str) -> bool:
+    return str(case_id).startswith("X-")
 
 
 def load_positions() -> dict[str, dict]:
@@ -45,7 +60,10 @@ def load_rubrics() -> dict:
 
 def case_label(case: dict, positions: dict[str, dict]) -> str:
     p = positions.get(case["positionId"]) or {}
-    return f"{case['positionId']} {p.get('jobTitleName', '')}".strip()
+    label = f"{case['positionId']} {p.get('jobTitleName', '')}".strip()
+    if is_ext_case(case["caseId"]):  # 확장 연습은 한 직무에 평가 주제가 두 개라 주제 이름까지 붙인다
+        label += " · " + case["categoriesOverride"][0]["categoryName"]
+    return label
 
 
 def case_items(case: dict) -> list[dict]:
@@ -206,6 +224,20 @@ def load_baseline() -> dict:
         out["official"] = {k: o.get(k) for k in ("mean", "spread", "scores", "createdAt")}
         if o.get("mean") is not None:
             out["threshold"] = o["mean"]  # 패널티 기준 = 공식 세트로 잰 v9.0.0 점수
+    return out
+
+
+def load_baseline_ext() -> dict:
+    """확장 연습용 v9.0.0 기준(같은 케이스 비교). baseline/extension.json이 없으면 비어 있다."""
+    p = BASELINE_DIR / "extension.json"
+    out = {"ready": False, "mean": None, "spread": None, "questions": {}, "caseAvg": {}, "secPerCase": None}
+    if p.exists():
+        r = json.loads(p.read_text(encoding="utf-8"))
+        out.update({"ready": True, "mean": r.get("mean"), "spread": r.get("spread"), "createdAt": r.get("createdAt"),
+                    "caseAvg": r.get("caseAvg") or {}, "secPerCase": r.get("secPerCase")})
+        runs = r.get("runs") or []
+        if runs and runs[0].get("questions"):
+            out["questions"] = runs[0]["questions"]
     return out
 
 

@@ -33,15 +33,23 @@ def make_client() -> LLMClient:
 class Run:
     def __init__(self, scope: str, case_ids: list[str], model: str, effort: str | None,
                  prompt_text: str | None = None, record: bool = True, label: str | None = None):
-        self.cases_all = core.load_cases()
+        # 묶음: core = 우선 직무 공통 케이스(평가 점수), ext = 확장 연습(참고 점수만)
+        self.set = "ext" if scope == "ext" else "core"
+        self.cases_all = core.load_ext_cases() if self.set == "ext" else core.load_cases()
         self.positions = core.load_positions()
         self.rubrics = core.load_rubrics()
         by_id = {c["caseId"]: c for c in self.cases_all}
-        self.case_ids = [c for c in case_ids if c in by_id] if scope == "pick" else [c["caseId"] for c in self.cases_all]
+        if self.set == "ext":
+            self.case_ids = [c for c in case_ids if c in by_id] or [c["caseId"] for c in self.cases_all]
+        else:
+            self.case_ids = [c for c in case_ids if c in by_id] if scope == "pick" else [c["caseId"] for c in self.cases_all]
         if not self.case_ids:
             raise ValueError("실행할 케이스를 하나 이상 골라 주세요.")
         self.cases = [by_id[c] for c in self.case_ids]
-        self.scope = "pick" if scope == "pick" and len(self.case_ids) < len(self.cases_all) else "all"
+        if self.set == "ext":
+            self.scope = "ext"
+        else:
+            self.scope = "pick" if scope == "pick" and len(self.case_ids) < len(self.cases_all) else "all"
         self.model = model
         self.effort = effort
         self.record = record
@@ -71,6 +79,7 @@ class Run:
             "status": self.status,
             "message": self.message,
             "scope": self.scope,
+            "set": self.set,
             "model": self.model,
             "effort": self.effort,
             "startedAt": self.started_at,
@@ -184,7 +193,8 @@ class Run:
 
     # ------------------------------------------------------------------
     def _aggregate(self, duration: float, stopped: bool) -> dict:
-        baseline = core.load_baseline()
+        ext = self.set == "ext"
+        baseline = core.load_baseline_ext() if ext else core.load_baseline()
         dims = core.CFG["rubric_display"]
         cases_out, all_totals, judge_missing, infra_error = [], [], False, False
         fail_counts, rule_fails = Counter(), Counter()
@@ -270,15 +280,20 @@ class Run:
         same = [baseline["caseAvg"][c] for c in self.case_ids if c in baseline["caseAvg"]]
         eval_score = round(sum(all_totals) / len(all_totals), 1) if full and all_totals else None
         reason = None
-        if self.scope != "all":
+        if ext:
+            reason = "확장 연습은 참고 점수만 나와요. 평가 점수와 공식 점수에는 들어가지 않아요."
+        elif self.scope != "all":
             reason = "특정 케이스만 실행해서 평가 점수는 계산하지 않았어요."
         elif stopped:
             reason = "중간에 멈춰서 평가 점수는 계산하지 않았어요."
         elif infra_error or judge_missing:
             reason = "생성이나 채점이 실패한 질문이 있어 평가 점수를 계산하지 못했어요. 다시 실행해 주세요."
-        return {
+        question_avg = round(sum(all_totals) / len(all_totals), 1) if all_totals else None
+        baseline_same = round(sum(same) / len(same), 1) if same and len(same) == len(self.case_ids) else None
+        out = {
             "runId": self.run_id,
             "scope": self.scope,
+            "set": self.set,
             "cases": self.case_ids,
             "model": self.model,
             "effort": self.effort,
@@ -288,10 +303,11 @@ class Run:
             "durationSec": round(duration, 1),
             "status": "stopped" if stopped else "done",
             "charged": len(self.attempted) * self.qpc,
-            "questionAvg": round(sum(all_totals) / len(all_totals), 1) if all_totals else None,
+            "questionAvg": question_avg,
             "evalScore": eval_score,
             "evalNote": reason,
-            "baselineSame": round(sum(same) / len(same), 1) if same and len(same) == len(self.case_ids) else None,
+            "baselineSame": baseline_same,
+            "promptUsed": core.sha256_text(self.prompt_text),
             "dimAvg": {k: (round(sum(v) / len(v), 1) if v else None) for k, v in dim_vals.items()},
             "failCounts": dict(fail_counts.most_common()),
             "ruleFails": dict(rule_fails.most_common()),
@@ -302,6 +318,36 @@ class Run:
             "costUsd": round(cost, 4),
             "items": cases_out,
         }
+        if ext:
+            out["gapCheck"] = gap_check(question_avg, baseline_same, self.prompt_text, stopped or infra_error or judge_missing)
+        return out
+
+
+def gap_check(ext_score: float | None, ext_base: float | None, prompt_text: str, incomplete: bool) -> dict:
+    """처음 보는 케이스 점검: 우선 직무 전체 평가에서 v9.0.0보다 오른 폭과 확장 연습에서 오른 폭을 견준다.
+
+    우선 직무에서만 크게 오르면 공개 케이스에 맞춰진 프롬프트일 가능성이 높다(공식 평가에는 처음 보는 케이스가 들어간다).
+    """
+    warn = float(core.CFG.get("gap_warn", 5))
+    base = core.load_baseline()
+    out: dict = {"core": None, "ext": None, "verdict": None, "samePrompt": None, "warn": warn}
+    core_run = next((r for r in reversed(list_results()) if r.get("evalScore") is not None), None)
+    if core_run and base.get("mean") is not None:
+        out["core"] = {"runId": core_run["runId"], "finishedAt": core_run.get("finishedAt"), "score": core_run["evalScore"],
+                       "base": base["mean"], "delta": round(core_run["evalScore"] - base["mean"], 1)}
+        used = core_run.get("promptUsed")
+        out["samePrompt"] = (used == core.sha256_text(prompt_text)) if used else None
+    if ext_score is not None and ext_base is not None and not incomplete:
+        out["ext"] = {"score": ext_score, "base": ext_base, "delta": round(ext_score - ext_base, 1)}
+    if out["ext"] is None:
+        out["verdict"] = "no_ext"  # 확장 기준이 없거나 실행이 덜 끝났다
+    elif out["core"] is None:
+        out["verdict"] = "no_core"
+    elif out["core"]["delta"] - out["ext"]["delta"] >= warn:
+        out["verdict"] = "core_only"
+    else:
+        out["verdict"] = "similar"
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +384,8 @@ def list_results() -> list[dict]:
             d = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
-        out.append({"runId": d.get("runId"), "scope": d.get("scope"), "evalScore": d.get("evalScore"), "file": f"runs/{p.name}",
+        out.append({"runId": d.get("runId"), "scope": d.get("scope"), "set": d.get("set") or ("ext" if d.get("scope") == "ext" else "core"),
+                    "promptUsed": d.get("promptUsed"), "evalScore": d.get("evalScore"), "file": f"runs/{p.name}",
                     "finishedAt": d.get("finishedAt"), "durationSec": d.get("durationSec"), "cases": len(d.get("cases") or []),
                     "questionAvg": d.get("questionAvg"), "dimAvg": d.get("dimAvg"), "failCounts": d.get("failCounts"),
                     "baselineSame": d.get("baselineSame"), "caseLabels": [c.get("label") for c in d.get("items") or []],
