@@ -406,7 +406,7 @@ def cmd_baseline(args) -> int:
         "runs": runs,
     }
     (core.BASELINE_DIR / "results.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-    _p(f"  기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} · 패널티 기준 {round(out['mean'] - out['spread'], 1)}")
+    _p(f"  기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} · 패널티 기준 {out['mean']}")
     _p("  baseline/results.json 에 저장했어요. main에 커밋해 참가자에게 배포하세요.")
     return 0
 

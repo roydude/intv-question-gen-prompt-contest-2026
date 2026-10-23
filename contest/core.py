@@ -167,7 +167,7 @@ def change_ratio(stage_id: str = "assignments", text: str | None = None) -> floa
 
 def submit_check(text: str | None = None) -> dict:
     ratio = change_ratio("assignments", text)
-    need = float(CFG.get("submit_min_change", 0.05))
+    need = float(CFG.get("submit_min_change", 0.03))
     return {"ratio": round(ratio, 4), "min": need, "identical": ratio == 0, "ok": ratio >= need}
 
 
@@ -193,8 +193,8 @@ def load_baseline() -> dict:
     if res_p.exists():
         r = json.loads(res_p.read_text(encoding="utf-8"))
         out.update({"ready": True, "mean": r.get("mean"), "spread": r.get("spread"), "createdAt": r.get("createdAt")})
-        if out["mean"] is not None and out["spread"] is not None:
-            out["threshold"] = round(out["mean"] - out["spread"], 1)
+        if out["mean"] is not None:
+            out["threshold"] = out["mean"]  # 패널티 선 = 기준 점수(흔들림 폭은 빼지 않는다)
         runs = r.get("runs") or []
         if runs and runs[0].get("questions"):
             out["questions"] = runs[0]["questions"]

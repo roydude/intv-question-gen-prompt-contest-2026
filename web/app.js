@@ -151,7 +151,7 @@ function updateEditorMeta() {
   renderDirty();
   scheduleChange();
 }
-/* ③의 v9.0.0 대비 바뀐 분량은 서버가 계산한다. 생성과 제출이 같은 기준(5%)을 쓴다 */
+/* ③의 v9.0.0 대비 바뀐 분량은 서버가 계산한다. 생성과 제출이 같은 기준(3%)을 쓴다 */
 function scheduleChange() {
   clearTimeout(S.chgTimer);
   S.chgTimer = setTimeout(async () => {
@@ -318,7 +318,7 @@ function renderSetup(force) {
         <div class="row gap8 center"><label class="su-field ${err.key ? 'error' : ''}"><input id="suKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-로 시작하는 키를 붙여 넣으세요"></label><button class="btn btn-primary sm" id="suKeySave">저장하고 확인</button></div>
         ${err.key ? `<p class="red xs b6">${esc(err.key)}</p>` : ''}</div>`;
   const d = all
-    ? `<div class="su-step done"><div class="t">③ 질문 생성 ${chip('완료', 'chip-done')}</div><b class="h15">준비가 끝났어요</b><p class="sub xs">③ 프롬프트를 5% 이상 고친 뒤 질문 생성을 눌러요.</p></div>`
+    ? `<div class="su-step done"><div class="t">③ 질문 생성 ${chip('완료', 'chip-done')}</div><b class="h15">준비가 끝났어요</b><p class="sub xs">③ 프롬프트를 3% 이상 고친 뒤 질문 생성을 눌러요.</p></div>`
     : `<div class="su-step wait"><div class="t muted">③ 질문 생성 ${chip('대기', 'chip-gray')}</div><p class="muted xs">①②가 끝나면 편집기에서 질문을 생성할 수 있어요.</p></div>`;
   card.innerHTML = `<div class="su-head"><b class="h16">시작 준비</b>${left ? chip(`${left}단계 남았어요`, 'chip-orange') : chip('준비 끝', 'chip-green')}
     <span class="sub sm grow">이 PC에서 한 번만 하면 돼요</span>${all ? '<button class="btn btn-ghost sm" id="suClose">카드 닫기</button>' : ''}</div>
@@ -568,7 +568,7 @@ function renderResult(r) {
   $('rBaseLabel').textContent = full ? '기준 점수 (v9.0.0)' : '같은 케이스 기준 (v9.0.0)';
   $('rBase').textContent = full ? (base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정') : (same ?? '산출 예정');
   $('rScoreNote').textContent = full
-    ? '질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 기준에서 흔들림 폭을 뺀 값보다 낮으면 패널티가 있어요.'
+    ? '질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 이보다 낮으면 패널티가 있어요.'
     : `${r.evalNote || ''} 비교는 같은 케이스의 기준선 평균과 해요.`;
   $('rVariance').textContent = base.ready ? `같은 프롬프트도 실행마다 점수가 달라질 수 있어요(기준선 흔들림 폭 ${base.spread}).` : '';
   const fails = Object.entries(r.failCounts || {});

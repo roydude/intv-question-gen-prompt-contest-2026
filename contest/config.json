@@ -4,7 +4,7 @@
   "deadline_label": "마감 10/26(월) 오전",
   "limit_questions": 400,
   "questions_per_case": 2,
-  "submit_min_change": 0.05,
+  "submit_min_change": 0.03,
   "branch_prefix": "contest/",
   "api": "responses",
   "base_url": "https://api.openai.com/v1",
