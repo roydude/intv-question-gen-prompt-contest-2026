@@ -7,8 +7,9 @@
   uv run app.py                 화면 켜기 (http://localhost:8000). 처음이면 개인 브랜치와 API 키부터 챙겨요
   uv run app.py setup           개인 브랜치만 만들기 (/시작에서 사용)
   uv run app.py doctor          실행 환경 점검
-  uv run app.py generate        화면 없이 한 사이클(질문 20개) 생성·채점
-  uv run app.py generate --cases P01,P03   케이스 골라 생성(케이스당 질문 2개)
+  uv run app.py generate        화면 없이 우선 직무 전체 평가(공통 케이스 10개 · 질문 20개) 생성·채점
+  uv run app.py generate --cases P01,P03   우선 직무 케이스 골라 생성(케이스당 질문 2개)
+  uv run app.py generate --ext  확장 연습(우선 직무 밖 20케이스, 평가 미포함 참고 점수) · --ext --cases P08로 골라서
   uv run app.py status          남은 질문과 최근 결과
   uv run app.py submit          제출: prompts/·runs/ 커밋·푸시 후 PR 열기
 """
@@ -36,12 +37,12 @@ def _p(msg: str = "") -> None:
     print(msg, flush=True)
 
 
-def _case_ids(arg: str | None) -> list[str]:
+def _case_ids(arg: str | None, ext: bool = False) -> list[str]:
     if not arg:
         return []
     want = [x.strip().upper() for x in arg.split(",") if x.strip()]
     out = []
-    for c in core.load_cases():
+    for c in (core.load_ext_cases() if ext else core.load_cases()):
         if c["caseId"].upper() in want or c["positionId"].upper() in want:
             out.append(c["caseId"])
     return out
@@ -206,9 +207,10 @@ def _print_progress(run: engine.Run, stop_evt) -> None:
 
 
 def cmd_generate(args) -> int:
-    ids = _case_ids(args.cases)
+    ext = bool(getattr(args, "ext", False))
+    ids = _case_ids(args.cases, ext)
     if args.cases and not ids:
-        _p("  케이스를 찾지 못했어요. 예: --cases P01,P03")
+        _p("  케이스를 찾지 못했어요. 예: --cases P01,P03" + (" (확장 연습은 P08,X-P17-C2처럼)" if ext else ""))
         return 1
     model = args.model or core.local_settings()["defaultModel"]
     effort = args.effort or core.local_settings()["defaultEffort"]
@@ -223,13 +225,14 @@ def cmd_generate(args) -> int:
     if block:
         _p("  ✗ " + block)
         return 1
-    run = engine.Run("pick" if ids else "all", ids, model, effort)
+    run = engine.Run("ext" if ext else ("pick" if ids else "all"), ids, model, effort)
     try:
         recorder.preflight(run.questions)
     except recorder.RecordError as e:
         _p("  " + str(e))
         return 1
-    _p(f"  질문 {run.questions}개 생성 · {model} · {effort} · 채점 {C['judge']['model']}")
+    what = "확장 연습" if ext else ("우선 직무 전체 평가" if run.scope == "all" else "우선 직무 케이스 골라 실행")
+    _p(f"  {what} · 질문 {run.questions}개 생성 · {model} · {effort} · 채점 {C['judge']['model']}")
     import threading
     stop_evt = threading.Event()
     t = threading.Thread(target=_print_progress, args=(run, stop_evt), daemon=True)
@@ -248,7 +251,18 @@ def cmd_generate(args) -> int:
     _p("")
     _p(f"  결과 파일   {snap.get('result')}")
     if r.get("evalScore") is not None:
-        _p(f"  평가 점수   {r['evalScore']} / 100")
+        _p(f"  평가 점수   {r['evalScore']} / 100 (우선 직무 전체 평가)")
+    elif ext:
+        same = r.get("baselineSame")
+        _p(f"  참고 점수   {r.get('questionAvg')} / 100" + (f" · 같은 케이스 v9.0.0 {same}" if same is not None else "") + " · 평가 점수·공식 점수와 무관")
+        g = r.get("gapCheck") or {}
+        if g.get("core") and g.get("ext"):
+            _p(f"  처음 보는 케이스 점검  우선 직무 {g['core']['delta']:+} · 확장 연습 {g['ext']['delta']:+}")
+        msg = {"core_only": "우선 직무에서만 크게 올랐어요. 공개 케이스에 맞춰졌는지 확인해 보세요.",
+               "similar": "두 묶음에서 비슷하게 올랐어요.",
+               "no_core": "우선 직무 전체 평가를 한 번 돌리면 비교할 수 있어요."}.get(g.get("verdict"))
+        if msg:
+            _p("  " + msg + (" (우선 직무 전체 평가 뒤에 프롬프트가 바뀌었어요)" if g.get("samePrompt") is False else ""))
     else:
         _p(f"  질문 점수 평균 {r.get('questionAvg')} · {r.get('evalNote') or ''}")
     for d in C["rubric_display"]:
@@ -270,8 +284,13 @@ def cmd_status(args) -> int:
     lst = engine.list_results()
     if lst:
         r = lst[-1]
-        score = r["evalScore"] if r["evalScore"] is not None else f"질문 평균 {r['questionAvg']}"
-        _p(f"  최근 실행   {r['runId']} · {r['scope']} · {score}")
+        if r["evalScore"] is not None:
+            score = f"우선 직무 전체 평가 {r['evalScore']}"
+        elif r.get("set") == "ext":
+            score = f"확장 연습 참고 점수 {r['questionAvg']}"
+        else:
+            score = f"질문 평균 {r['questionAvg']}"
+        _p(f"  최근 실행   {r['runId']} · {score}")
     n = recorder.ahead_count()
     if n:
         _p(f"  아직 못 올린 기록 커밋 {n}개 → 화면을 켜거나 다음 실행 때 올라가요")
@@ -380,22 +399,25 @@ def cmd_baseline(args) -> int:
     model = args.model or C["generation"]["default_model"]
     effort = args.effort or C["generation"]["default_effort"]
     prompt = core.read_prompt("assignments", baseline=True)
+    ext = bool(getattr(args, "ext", False))
     runs = []
     for i in range(args.runs):
-        _p(f"  기준선 {i + 1}/{args.runs} 생성 중 …")
-        run = engine.Run("all", [], model, effort, prompt_text=prompt, record=False, label=f"baseline-{i + 1}")
+        _p(f"  기준선 {i + 1}/{args.runs} 생성 중 …" + (" (확장 연습)" if ext else ""))
+        run = engine.Run("ext" if ext else "all", [], model, effort, prompt_text=prompt, record=False, label=f"baseline{'-ext' if ext else ''}-{i + 1}")
         run.execute()
         r = run.result
         qs = {it["itemId"]: it["question"] for c in r["items"] for it in c["items"] if it.get("question")}
-        runs.append({"score": r["evalScore"], "questionAvg": r["questionAvg"], "dimAvg": r["dimAvg"], "durationSec": r["durationSec"],
+        # 확장 연습은 평가 점수가 없으니 질문 평균을 점수로 쓴다(생성·채점 실패가 있으면 빼고 다시 돌린다).
+        sc = r["evalScore"] if not ext else (r["questionAvg"] if not any(c.get("genError") or c.get("judgeError") for c in r["items"]) else None)
+        runs.append({"score": sc, "questionAvg": r["questionAvg"], "dimAvg": r["dimAvg"], "durationSec": r["durationSec"],
                      "failCounts": r["failCounts"], "ruleFails": r["ruleFails"], "questions": qs, "detail": r})
-        _p(f"    평가 점수 {r['evalScore']} · {r['durationSec']}초")
+        _p(f"    {'참고 점수' if ext else '평가 점수'} {sc} · {r['durationSec']}초")
     scores = [x["score"] for x in runs if x["score"] is not None]
     if not scores:
         _p("  평가 점수를 하나도 얻지 못했어요. 오류를 확인해 주세요.")
         return 1
     workers = C.get("workers", 5)
-    batches = max(1, -(-len(core.load_cases()) // workers))
+    batches = max(1, -(-len(core.load_ext_cases() if ext else core.load_cases()) // workers))
     case_vals: dict[str, list[float]] = {}
     for x in runs:
         for c in x["detail"]["items"]:
@@ -411,9 +433,15 @@ def cmd_baseline(args) -> int:
         "caseAvg": {k: round(sum(v) / len(v), 1) for k, v in case_vals.items()},
         "runs": runs,
     }
-    (core.BASELINE_DIR / "results.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-    _p(f"  연습 기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} (패널티 기준은 baseline/official.json)")
-    _p("  baseline/results.json 에 저장했어요. main에 커밋해 참가자에게 배포하세요.")
+    name = "extension.json" if ext else "results.json"
+    if ext:
+        out["source"] = "앱 경로(Responses API)로 v9.0.0을 확장 연습 케이스 20개에 생성·채점. 확장 연습 화면의 같은 케이스 비교용(평가 점수·패널티와 무관)."
+    (core.BASELINE_DIR / name).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    if ext:
+        _p(f"  확장 연습 기준 {out['mean']} · 흔들림 폭 {out['spread']} (참고 점수 비교용)")
+    else:
+        _p(f"  연습 기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} (패널티 기준은 baseline/official.json)")
+    _p(f"  baseline/{name} 에 저장했어요. main에 커밋해 참가자에게 배포하세요.")
     return 0
 
 
@@ -428,8 +456,9 @@ def main(argv=None) -> int:
     p.add_argument("--git-email")
     p = sub.add_parser("doctor", help="실행 환경 점검")
     p.add_argument("--ping", action="store_true", help="키가 살아 있는지 확인(비용 없음)")
-    p = sub.add_parser("generate", help="화면 없이 생성·채점")
+    p = sub.add_parser("generate", help="화면 없이 생성·채점 (기본: 우선 직무 전체 평가)")
     p.add_argument("--cases", help="케이스 골라 실행. 예: P01,P03")
+    p.add_argument("--ext", action="store_true", help="확장 연습(참고 점수). --cases와 함께 쓰면 그 케이스만. 예: --ext --cases P08,X-P17-C2")
     p.add_argument("--model")
     p.add_argument("--effort")
     sub.add_parser("status", help="남은 질문과 최근 결과")
@@ -440,6 +469,7 @@ def main(argv=None) -> int:
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--model")
     p.add_argument("--effort")
+    p.add_argument("--ext", action="store_true", help="확장 연습 기준(baseline/extension.json)")
     args = ap.parse_args(argv)
     fn = {"setup": cmd_setup, "doctor": cmd_doctor, "generate": cmd_generate, "status": cmd_status,
           "verify": cmd_verify, "submit": cmd_submit, "baseline": cmd_baseline}.get(args.cmd, cmd_serve)

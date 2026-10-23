@@ -76,8 +76,12 @@
         <div class="acc-b" id="lastBody"></div>
       </section>
       <section class="acc" data-sec="cases">
-        <button class="acc-h"><span class="tt"><b>공통 케이스 10개</b><span class="muted xs">누르면 공고·지원자 정보 창이 열려요</span></span><i class="chev"></i></button>
+        <button class="acc-h"><span class="tt"><b>우선 직무 10개</b><span class="muted xs">평가 점수에 들어가요 · 누르면 공고·지원자 정보 창</span></span><i class="chev"></i></button>
         <div class="acc-b"><div class="wrap" id="caseChips"></div></div>
+      </section>
+      <section class="acc" data-sec="ext">
+        <button class="acc-h"><span class="tt"><b>확장 연습 <span id="extCount">20</span>개</b><span class="muted xs">우선 직무 밖 직무 10개 × 평가 주제 2개 · 평가 미포함</span></span><i class="chev"></i></button>
+        <div class="acc-b"><div class="wrap" id="extChips"></div><p class="muted xs ext-note">칩을 누르면 공고·지원자 정보 창이 열리고, 두 평가 주제를 함께 보여 줘요.</p></div>
       </section>
       <section class="acc" data-sec="remain">
         <button class="acc-h"><span class="tt"><b>남은 질문</b><span class="muted xs" id="remainSub"></span></span><b class="blue h15" id="remainBig"></b><i class="chev"></i></button>
@@ -98,7 +102,7 @@
     </button>
     <button class="rail-item" data-rail="cases">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
-      <span class="lb">공통 케이스</span><b>10</b>
+      <span class="lb">우선 직무</span><b>10</b>
     </button>
     <button class="rail-item" data-rail="remain">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>
@@ -139,9 +143,10 @@
         </div>
         <div class="dims" id="rDims"></div>
       </section>
+      <section class="card gap-card hidden" id="rGap"></section>
       <section class="card rules-strip" id="rRules"></section>
       <section class="card table" id="rTable"></section>
-      <p class="muted xs">질문 점수 = J1 + J2 + J3 + J4 (100점) · 평가 점수 = 질문 20개 점수의 평균 · 연습 점수예요. 공식 점수는 운영자 PC에서 제출본 프롬프트로 다시 매겨요.</p>
+      <p class="muted xs" id="rFoot">질문 점수 = J1 + J2 + J3 + J4 (100점) · 평가 점수 = 질문 20개 점수의 평균 · 연습 점수예요. 공식 점수는 운영자 PC에서 제출본 프롬프트로 다시 매겨요.</p>
     </div>
   </div>
 </main>
@@ -159,18 +164,24 @@
 <div class="modal-back hidden" id="genModal">
   <div class="modal w640">
     <div class="m-head">
-      <div><b class="h22">질문 생성</b><p class="sub">저장된 ③ 프롬프트로 질문을 만들고 바로 채점해요<br>평가 점수는 질문 20개가 다 있어야 계산돼요.</p></div>
+      <div><b class="h22">질문 생성</b><p class="sub">저장된 ③ 프롬프트로 질문을 만들고 바로 채점해요<br>평가 점수는 우선 직무 전체 평가에서만 나와요.</p></div>
       <button class="x" data-close>✕</button>
     </div>
     <b class="h15">범위</b>
     <label class="radio-card" id="scopeAll">
       <input type="radio" name="scope" value="all" checked>
-      <div><b>전체 케이스로 생성하기 (질문 20개)</b><p class="sub sm">이걸 선택하면 평가 점수까지 확인할 수 있어요.</p></div>
+      <div><b>우선 직무 전체 평가 (10케이스 · 질문 20개)</b><p class="sub sm" id="scopeAllSub">평가 점수가 나오고 연습 기준과 비교해요.</p></div>
     </label>
     <label class="radio-card" id="scopePick">
       <input type="radio" name="scope" value="pick">
-      <div><b>특정 케이스만 골라서 실행 (질문 2개)</b><p class="sub sm">고친 규칙을 몇 케이스로 빠르게 볼 때 선택해요. 질문 점수만 나오고 평가 점수는 계산하지 않아요.</p>
+      <div><b>우선 직무 케이스 골라 실행 (케이스당 질문 2개)</b><p class="sub sm">질문 점수만 나와요. 평가 점수는 계산하지 않아요.</p>
         <div class="wrap" id="pickChips"></div></div>
+    </label>
+    <label class="radio-card" id="scopeExt">
+      <input type="radio" name="scope" value="ext">
+      <div class="grow"><div class="row between center"><b>확장 연습 · 평가 미포함 (케이스당 질문 2개)</b><button type="button" class="link-btn" id="extAll">모두 선택</button></div>
+        <p class="sub sm">평가 점수와 공식 점수에 들어가지 않는 참고 측정이에요. 같은 케이스의 v9.0.0과 비교해요.</p>
+        <div class="wrap" id="extPickChips"></div></div>
     </label>
     <b class="h15">생성 모델</b>
     <div class="row gap8">
