@@ -114,9 +114,11 @@ class Run:
         raw_ivs = obj.get("interviews") if isinstance(obj, dict) else None
         out_ids = [iv.get("itemId") for iv in raw_ivs if isinstance(iv, dict)] if isinstance(raw_ivs, list) else []
         # 질문이 평가 요소보다 많거나 같은 평가 요소 질문이 두 번 나오면 그 케이스는 0점이라 채점하지 않는다
-        if len(out_ids) != len(set(out_ids)) or any(i not in expected for i in out_ids):
+        # 평가 요소에 없는 itemId 질문은 그 질문만 버리고(그 평가 요소는 질문 없음으로 0점) 나머지는 채점한다
+        if len(out_ids) != len(set(out_ids)) or len(out_ids) > len(expected):
             rec["structureError"] = f"출력 itemId {out_ids} · 평가 요소 {expected}"
-        present = [i for i in expected if i in out_ids]
+        asked = {iv.get("itemId") for iv in raw_ivs if isinstance(iv, dict) and iv.get("question")} if isinstance(raw_ivs, list) else set()
+        present = [i for i in expected if i in asked]
         if obj is None or rec["checks"].get("disqualified") or rec.get("structureError") or not present:
             self.progress[cid]["judge"] = "skip"
             self.records[cid] = rec
