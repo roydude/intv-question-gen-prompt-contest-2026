@@ -271,7 +271,7 @@ function renderPanel() {
          <p class="muted xs">평가 점수는 전체 케이스로 실행해야 나와요</p>`;
     body.innerHTML = `${head}<div class="divider"></div>
       ${st.rubric.map((d) => `<div class="kv"><span class="sub">${d.id} ${esc(d.name)}</span><span class="v">${r.dimAvg?.[d.id] ?? '-'} / ${d.weight}</span></div>`).join('')}
-      <div class="kv"><span class="sub">규칙 진단</span><span class="sub sm b5">위반 ${rf}건 · 점수 미반영</span></div>
+      <div class="kv"><span class="sub">규칙 진단</span><span class="sub sm b5">위반 ${rf}건</span></div>
       <div class="kv"><span class="sub">많이 걸린 유형</span><span class="org sm b6">${top ? `${top[0]} ${esc(failName(top[0]))} ×${top[1]}` : '없음'}</span></div>
       <button class="btn sm full" data-view="result">결과 보기</button>`;
   }
@@ -568,7 +568,7 @@ function renderResult(r) {
   $('rBaseLabel').textContent = full ? '기준 점수 (v9.0.0)' : '같은 케이스 기준 (v9.0.0)';
   $('rBase').textContent = full ? (base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정') : (same ?? '산출 예정');
   $('rScoreNote').textContent = full
-    ? '질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 이보다 낮으면 패널티가 있어요.'
+    ? '질문 20개 AI 채점 평균이에요(연습 점수). 기준 점수는 v9.0.0을 공개 10개로 3회 잰 평균이에요. 패널티 기준은 공식 세트로 잰 v9.0.0 점수이고, 공식 점수와 비교해요.'
     : `${r.evalNote || ''} 비교는 같은 케이스의 기준선 평균과 해요.`;
   $('rVariance').textContent = base.ready ? `같은 프롬프트도 실행마다 점수가 달라질 수 있어요(기준선 흔들림 폭 ${base.spread}).` : '';
   const fails = Object.entries(r.failCounts || {});
@@ -581,7 +581,7 @@ function renderResult(r) {
       <div class="bar ${d.id === 'J2' ? 'org' : ''}"><i style="width:${v == null ? 0 : (v / d.weight) * 100}%"></i></div>${desc}</div>`;
   }).join('');
   const rf = Object.entries(r.ruleFails || {}); const rfTotal = rf.reduce((a, [, v]) => a + v, 0);
-  $('rRules').innerHTML = `<b class="sm">규칙 진단 16개</b><span class="chip chip-gray sm">위반 ${rfTotal}건 · 점수 미반영</span>
+  $('rRules').innerHTML = `<b class="sm">규칙 진단 16개</b><span class="chip chip-gray sm">위반 ${rfTotal}건</span>
     ${rf.map(([k, v]) => `<span class="chip chip-orange sm">${k} ${esc(ruleName(k))} ×${v}</span>`).join('')}
     <button class="link" data-open="criteriaModal">기준 보기 →</button>`;
   const head = '<div class="tr head"><span>케이스</span><span>지원자</span><span>평가 주제</span><span>점수 · 기준</span><span>실패 유형</span><span>규칙 진단</span><span></span></div>';

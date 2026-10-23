@@ -200,6 +200,12 @@ def load_baseline() -> dict:
             out["questions"] = runs[0]["questions"]
         out["secPerCase"] = r.get("secPerCase")
         out["caseAvg"] = r.get("caseAvg") or {}
+    off_p = BASELINE_DIR / "official.json"
+    if off_p.exists():
+        o = json.loads(off_p.read_text(encoding="utf-8"))
+        out["official"] = {k: o.get(k) for k in ("mean", "spread", "scores", "createdAt")}
+        if o.get("mean") is not None:
+            out["threshold"] = o["mean"]  # 패널티 기준 = 공식 세트로 잰 v9.0.0 점수
     return out
 
 

@@ -1,0 +1,19 @@
+{
+  "createdAt": "2026-10-23T15:06:39+0900",
+  "source": "공식 평가 세트(비공개, 같은 10개 직무)로 v9.0.0을 3회 생성·채점(261023). 참가자 앱과 같은 Responses API·채점관. 패널티 기준 점수.",
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "judge": {
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "max_output_tokens": 6000,
+    "label": "공식 평가와 같은 GPT 모델로 채점"
+  },
+  "mean": 66.8,
+  "spread": 1.4,
+  "scores": [
+    67.5,
+    66.9,
+    66.1
+  ]
+}

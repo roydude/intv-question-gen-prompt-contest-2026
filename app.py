@@ -256,7 +256,7 @@ def cmd_generate(args) -> int:
     if r.get("failCounts"):
         _p("  실패 유형   " + ", ".join(f"{k}×{v}" for k, v in r["failCounts"].items()))
     if r.get("ruleFails"):
-        _p("  규칙 진단   " + ", ".join(f"{k}×{v}" for k, v in r["ruleFails"].items()) + " (점수 미반영)")
+        _p("  규칙 진단   " + ", ".join(f"{k}×{v}" for k, v in r["ruleFails"].items()) + " (A00과 질문 수·중복 오류만 케이스 0점)")
     ps = recorder.wait_push(60)
     _p(f"  기록        {ps.get('message')}")
     u = recorder.usage()
@@ -396,6 +396,11 @@ def cmd_baseline(args) -> int:
         return 1
     workers = C.get("workers", 5)
     batches = max(1, -(-len(core.load_cases()) // workers))
+    case_vals: dict[str, list[float]] = {}
+    for x in runs:
+        for c in x["detail"]["items"]:
+            if c.get("avg") is not None:
+                case_vals.setdefault(c["caseId"], []).append(c["avg"])
     out = {
         "createdAt": recorder.now_iso(),
         "model": model, "effort": effort, "judge": C["judge"],
@@ -403,10 +408,11 @@ def cmd_baseline(args) -> int:
         "spread": round(max(scores) - min(scores), 1),
         "scores": scores,
         "secPerCase": round(sum(x["durationSec"] for x in runs) / len(runs) / batches, 1),
+        "caseAvg": {k: round(sum(v) / len(v), 1) for k, v in case_vals.items()},
         "runs": runs,
     }
     (core.BASELINE_DIR / "results.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-    _p(f"  기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} · 패널티 기준 {out['mean']}")
+    _p(f"  연습 기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} (패널티 기준은 baseline/official.json)")
     _p("  baseline/results.json 에 저장했어요. main에 커밋해 참가자에게 배포하세요.")
     return 0
 
