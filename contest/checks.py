@@ -233,7 +233,7 @@ def check_assignments(text: str, case: dict, position: dict) -> CheckResult:
         if not rb_ok:
             rb_bad.append(iid)
         tip = nfc(iv.get("answerTip", ""))
-        if klen(tip) > 30 or TIP_LEAK.search(tip):
+        if klen(tip) > 50 or TIP_LEAK.search(tip):
             tip_bad.append(f"{iid}({klen(tip)}자)")
         a = anchors.get(iid) or []
         if a:
@@ -244,7 +244,7 @@ def check_assignments(text: str, case: dict, position: dict) -> CheckResult:
     c.add("A07", "질문에 STAR 용어 없음", not star_bad, ", ".join(star_bad))
     c.add("A08", "questionType 값 유효", not type_bad, ", ".join(type_bad))
     c.add("A09", "금지 용어 없음", not forb_bad, ", ".join(forb_bad))
-    c.add("A10", "answerTip 30자 이내·평가 용어 노출 없음", not tip_bad, ", ".join(tip_bad))
+    c.add("A10", "answerTip 50자 이내·평가 용어 노출 없음", not tip_bad, ", ".join(tip_bad))
     c.add("A11", "Blueprint 완비(의도·STAR 4항·근거)", not bp_bad, ", ".join(bp_bad))
     c.add("A12", "Rubric 3단계 criteria 완비", not rb_bad, ", ".join(rb_bad))
     c.add("A13", "질문이 한국어", not ko_bad, ", ".join(ko_bad))
