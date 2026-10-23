@@ -141,7 +141,8 @@ interviewBlueprint는 해당 질문과 평가의 기준 데이터이다.
 * expectedEvidence는 AI 채점 시 반드시 확인해야 할 핵심 근거를 작성한다.
 * expectedEvidence는 itemDefinition과 questionIntent에 직접 연결되어야 한다.
 * expectedEvidence와 expectedSTAR는 질문에서 정한 답할 대상을 중심으로 작성한다. 지원자가 이 질문에 답하면서 자연스럽게 말할 수 있는 내용만 넣고, 질문이 묻지 않은 행동(묻지 않은 협업, 보고, 후속 조치 등)을 요구하지 않는다.
-* expectedEvidence의 첫 항목은 답할 대상 자체에 대한 근거로 쓴다. 나머지는 그 답을 뒷받침하는 맥락이나 결과로 1~2개만 쓴다.
+* expectedEvidence의 첫 항목은 답할 대상 자체에 대한 근거로 쓴다. 나머지 1~2개는 답할 대상을 구체화하는 세부(무엇을 보고 판단했는지, 어떤 순서였는지 등)로 쓴다. 결과·효과·상대방 반응·개선 전후 수치는 질문이 직접 묻지 않으면 넣지 않는다.
+* expectedSTAR의 result는 답변 흐름을 이해하기 위한 참고이며, 질문이 결과를 묻지 않으면 expectedEvidence와 evaluationRubric의 필수 조건으로 옮기지 않는다.
 * situational 질문은 실제 결과가 없으므로 expectedSTAR의 result에는 예상 결과나 결과를 확인할 방법을 쓴다.
 * answerTip은 지원자에게 보여줄 답변 팁이다.
 * answerTip은 questionIntent와 expectedEvidence를 참고하되, 평가 기준이나 채점 기준으로 사용하지 않는다.
@@ -156,12 +157,12 @@ interviewBlueprint는 해당 질문과 평가의 기준 데이터이다.
 evaluationRubric은 AI가 일관되게 채점할 수 있도록 작성한다.
 
 * excellent, acceptable, poor 세 수준으로 작성한다.
-* 각 수준은 expectedEvidence와 expectedSTAR 충족 정도를 기준으로 구분한다.
-* 세 수준은 질문의 답할 대상이 얼마나 구체적으로 나왔는지로 구분한다.
-* excellent는 답할 대상이 구체적으로(이름, 수치, 순서 등) 나오고, 왜 그렇게 했는지까지 이어지는 수준이다.
-* acceptable은 답할 대상은 나오지만 일반론에 그치거나 이유가 빠진 수준이다.
+* 세 수준은 질문의 답할 대상이 얼마나 구체적으로 나왔는지로만 구분한다. 질문에 답하는 것만으로 excellent에 도달할 수 있어야 한다.
+* excellent는 답할 대상이 그 경험의 실제 장면에 맞게 구체적으로(이름, 수치, 순서 등) 나오는 수준이다.
+* acceptable은 답할 대상은 나오지만 그 경험에만 해당하지 않는 일반론에 그치는 수준이다.
 * poor는 답할 대상이 나오지 않거나 질문과 다른 이야기를 하는 수준이다.
 * 각 criteria 문장에는 item의 업무 대상 단어를 넣어 이 질문에만 맞는 기준으로 쓴다. "구체적이다", "논리적이다" 같은 말만으로 쓰지 않는다.
+* 질문이 묻지 않은 이유, 결과, 효과, 상대방 반응, 후속 조치를 어느 수준의 조건으로도 넣지 않는다.
 * rubric은 새로운 평가 기준을 만들지 않고, itemDefinition과 expectedEvidence를 기준으로 작성한다.
 
 # Workflow
@@ -245,7 +246,7 @@ item이 총 N개이면 interviews 배열도 반드시 N개의 객체를 포함�
 - 질문에 쓴 경험의 이름·수치·역할이 입력과 정확히 같은가?
 - 시제가 경험의 시기와 맞고, 경험과 가정이 섞이지 않았는가?
 9. expectedEvidence는 itemDefinition과 직접 연결되어 있는가?
-10. evaluationRubric은 expectedEvidence와 expectedSTAR를 기준으로 작성되었는가?
+10. evaluationRubric은 expectedEvidence를 기준으로 작성되었고, 질문이 묻지 않은 결과·이유·반응을 요구하지 않는가?
 11. resumeInfo를 평가 기준으로 사용하지 않았는가?
 12. answerTip은 50자 이내이며 평가 기준이나 채점 기준을 직접 노출하지 않는가?
 13. JSON Schema를 정확히 준수했는가?
