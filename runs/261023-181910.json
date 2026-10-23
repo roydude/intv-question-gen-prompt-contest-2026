@@ -1,0 +1,214 @@
+{
+  "runId": "261023-181910",
+  "scope": "pick",
+  "cases": [
+    "C-P05-S3"
+  ],
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "judge": {
+    "model": "gpt-6.1-sol",
+    "effort": "medium"
+  },
+  "startedAt": "2026-10-23T18:19:11+09:00",
+  "finishedAt": "2026-10-23T18:20:06+09:00",
+  "durationSec": 55.3,
+  "status": "done",
+  "charged": 2,
+  "questionAvg": 85.0,
+  "evalScore": null,
+  "evalNote": "특정 케이스만 실행해서 평가 점수는 계산하지 않았어요.",
+  "baselineSame": 61.9,
+  "dimAvg": {
+    "J1": 12.5,
+    "J2": 50.0,
+    "J3": 20.0,
+    "J4": 2.5
+  },
+  "failCounts": {},
+  "ruleFails": {},
+  "prompts": {
+    "video-interview-practice-evaluation-topics.st": "b43bae1804864f84be08e6e99d95cc2f5a46b2c4ba54d5a8e9ec8bcfd917d9c7",
+    "video-interview-practice-assignments.st": "fc59048b04a102a21f799e78f9a33380a790d451dbcfd7d2fd5600b64ab89711",
+    "video-interview-practice-answer-follow-up.st": "d86d120b96c70abb94ed37e9b238443a300649f900e141efbf6e349cb4e75934"
+  },
+  "code": "7871b222b21c13481384a829efa9109c2832b0c2325e555947fc97ea813344f2",
+  "head": "fd2e657",
+  "usage": {
+    "input": 10268,
+    "output": 2606,
+    "reasoning": 887
+  },
+  "costUsd": 0.0466,
+  "items": [
+    {
+      "baselineAvg": 61.9,
+      "caseId": "C-P05-S3",
+      "label": "P05 마케팅 전략 · 분석",
+      "who": "타 직무 경력자의 직무 전환",
+      "category": "캠페인 기획과 성과 개선",
+      "avg": 85.0,
+      "items": [
+        {
+          "itemId": "P05-C2-I1",
+          "itemName": "분석 결과를 캠페인 실행 계획으로 옮기기",
+          "question": "오름퍼니처의 휴면 거래처 재접촉 캠페인에서, 먼저 연락할 거래처를 정하는 데 가장 중요하게 본 기준은 무엇이었나요?",
+          "answerTip": "당시의 구체적인 장면을 떠올리며 본인이 한 일을 중심으로 답해 보세요.",
+          "baselineQuestion": "오름퍼니처 휴면 거래처 재접촉 캠페인에서 발주 분석을 대상·메시지·연락 채널·일정으로 구체화하고 관계자와 합의해 실행하기까지의 과정을 말씀해 주세요.",
+          "total": 85.0,
+          "note": null,
+          "points": {
+            "J1": 12.5,
+            "J2": 50.0,
+            "J3": 20.0,
+            "J4": 2.5
+          },
+          "reasons": {
+            "J1": "재접촉 캠페인의 타깃 선정은 평가 요소와 관련되지만, 분석 결론을 구체적인 실행 계획으로 옮긴 행동보다 대상 선정 기준에 초점이 좁혀져 있다.",
+            "J2": "해당 없음: 휴면 거래처 재접촉이라는 경험과 가장 중요하게 본 선정 기준이라는 단일 답변 대상이 명확하다.",
+            "J3": "실제로 수행한 휴면 거래처 재접촉과 연락 우선순위 선정 경험을 정확히 짚으며 입력에 없는 사실을 전제하지 않는다.",
+            "J4": "질문과 근거 목록 및 채점 기준은 선정 기준을 중심으로 일관되지만, 실행 계획 구체화와 합의·실행이라는 item의 주요 행동을 확인하기에는 설계 범위가 좁다."
+          },
+          "failCodes": [],
+          "issues": [
+            "대상 선정 기준만으로 실행 계획 전환 역량을 평가하기에는 근거가 제한적이다."
+          ]
+        },
+        {
+          "itemId": "P05-C2-I2",
+          "itemName": "캠페인 성과 지표를 정해 개선안 보고하기",
+          "question": "꽃집 인스타그램 광고에서 가격 표기형으로 소재를 바꾼 판단을 광고를 잘 모르는 동료에게 설명한다면, 어떤 말로 설명하시겠어요?",
+          "answerTip": "상대에게 직접 말하듯 짧고 자연스러운 문장으로 답해 보세요.",
+          "baselineQuestion": "동네 꽃집 인스타그램 광고에서 성과 지표를 정하고 게시물 유형별 결과를 해석해 사장님께 말로 전달한 개선안의 내용을 말씀해 주세요.",
+          "total": 85.0,
+          "note": null,
+          "points": {
+            "J1": 12.5,
+            "J2": 50.0,
+            "J3": 20.0,
+            "J4": 2.5
+          },
+          "reasons": {
+            "J1": "광고 반응을 소재 변경 판단과 연결한다는 점은 적합하지만, 성과 지표 선정과 개선안 보고보다 비전문가에게 쉽게 설명하는 능력으로 초점이 이동한다.",
+            "J2": "해당 없음: 꽃집 광고의 소재 변경 판단을 동료에게 설명하는 구체적인 가정 상황에서 전달할 설명 하나를 요구한다.",
+            "J3": "가격 표기형으로 소재를 변경한 실제 경험을 활용하고 동료에게 설명하는 장면은 가정으로 제시해 보고서 작성 등 없는 경험을 전제하지 않는다.",
+            "J4": "반응 비교와 소재 변경 판단에 관한 질문·근거·채점 수준은 연결되지만, 쉬운 설명을 중시하는 설계로 인해 item의 지표 선정 및 개선안 보고를 충분히 검증하지 못한다."
+          },
+          "failCodes": [],
+          "issues": [
+            "성과 지표 선정 기준을 확인하지 않는다.",
+            "비전문가 대상 설명 능력이 주요 채점 기준으로 부각된다."
+          ]
+        }
+      ],
+      "checks": {
+        "passed": true,
+        "failed": [],
+        "hard": [
+          {
+            "id": "A01",
+            "name": "JSON 파싱",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A00",
+            "name": "내부 값 노출 없음(있으면 그 케이스 0점)",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A14",
+            "name": "최상위 스키마 키 일치",
+            "ok": true,
+            "detail": "keys=['interviews', 'positionId']"
+          },
+          {
+            "id": "A02",
+            "name": "positionId 일치",
+            "ok": true,
+            "detail": "'P05' vs 'P05'"
+          },
+          {
+            "id": "A03",
+            "name": "interview 개수 = item 개수",
+            "ok": true,
+            "detail": "2 vs 2"
+          },
+          {
+            "id": "A04",
+            "name": "itemId 전부 1회·categoryId 일치",
+            "ok": true,
+            "detail": "ids=['P05-C2-I1', 'P05-C2-I2']"
+          },
+          {
+            "id": "A05",
+            "name": "질문 길이 50~150자(공백 포함)",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A06",
+            "name": "질문은 하나(물음표 1개 이하)",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A07",
+            "name": "질문에 STAR 용어 없음",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A08",
+            "name": "questionType 값 유효",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A09",
+            "name": "금지 용어 없음",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A10",
+            "name": "answerTip 50자 이내·평가 용어 노출 없음",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A11",
+            "name": "Blueprint 완비(의도·STAR 4항·근거)",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A12",
+            "name": "Rubric 3단계 criteria 완비",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A13",
+            "name": "질문이 한국어",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "id": "A15",
+            "name": "interview 객체 키 일치",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "warnings": [],
+        "disqualified": false
+      },
+      "genError": null,
+      "judgeError": null,
+      "judgeComment": "두 경험을 공고와 연결하고 사실도 정확히 활용했지만, 각각 대상 선정 기준과 쉬운 설명에 머물러 실행 계획 수립 및 성과 지표 기반 개선안 보고의 검증 범위가 좁다.",
+      "outputText": "{\n  \"positionId\": \"P05\",\n  \"interviews\": [\n    {\n      \"categoryId\": \"P05-C2\",\n      \"itemId\": \"P05-C2-I1\",\n      \"interviewBlueprint\": {\n        \"questionIntent\": \"거래처 데이터에서 얻은 판단을 캠페인의 우선 접촉 대상 선정 기준으로 연결할 수 있는지 확인한다.\",\n        \"questionType\": \"behavioral\",\n        \"expectedSTAR\": {\n          \"situation\": \"오름퍼니처에서 휴면 거래처 재접촉 캠페인을 진행한 상황\",\n          \"task\": \"거래처별 발주 내역을 바탕으로 먼저 연락할 대상을 정하는 일\",\n          \"action\": \"우선 접촉 대상을 가르는 데 사용한 기준을 실제 거래처 상태와 연결해 설명\",\n          \"result\": \"그 기준에 따라 어떤 거래처가 우선 대상이 되었는지 정리\"\n        },\n        \"expectedEvidence\": [\n          \"먼저 연락할 거래처를 정하는 데 실제로 사용한 판단 기준\",\n          \"그 기준을 판단하는 데 살펴본 거래처별 발주 정보\",\n          \"우선 대상과 나머지 대상을 구분한 구체적인 거래처 상태\"\n        ]\n      },\n      \"question\": \"오름퍼니처의 휴면 거래처 재접촉 캠페인에서, 먼저 연락할 거래처를 정하는 데 가장 중요하게 본 기준은 무엇이었나요?\",\n      \"answerTip\": \"당시의 구체적인 장면을 떠올리며 본인이 한 일을 중심으로 답해 보세요.\",\n      \"evaluationRubric\": {\n        \"excellent\": {\n          \"criteria\": [\n            \"발주 품목과 시기를 확인했다는 설명에 그치지 않고, 어떤 상태의 거래처를 먼저 연락할 대상으로 판단했는지 구체적인 선정 기준을 설명한다.\"\n          ]\n        },\n        \"acceptable\": {\n          \"criteria\": [\n            \"재주문 가능성이 높은 거래처부터 연락한다는 일반적인 기준은 제시하지만, 실제 발주 정보에서 우선 대상을 구분한 기준은 구체적이지 않다.\"\n          ]\n        },\n        \"poor\": {\n          \"criteria\": [\n            \"휴면 거래처의 우선 접촉 기준을 제시하지 못하거나, 재주문 성과 등 대상 선정과 다른 이야기만 한다.\"\n          ]\n        }\n      }\n    },\n    {\n      \"categoryId\": \"P05-C2\",\n      \"itemId\": \"P05-C2-I2\",\n      \"interviewBlueprint\": {\n        \"questionIntent\": \"광고 반응 비교를 통해 내린 소재 변경 판단을 비전문가가 이해할 수 있는 성과 해석으로 설명할 수 있는지 확인한다.\",\n        \"questionType\": \"situational\",\n        \"expectedSTAR\": {\n          \"situation\": \"광고를 잘 모르는 동료에게 꽃집 인스타그램 광고의 소재 변경 판단을 설명하는 상황\",\n          \"task\": \"가격 표기형으로 광고 소재를 바꾼 이유를 이해하기 쉽게 전달하는 일\",\n          \"action\": \"실제로 비교한 광고 반응을 바탕으로 소재 변경 판단을 쉬운 말로 설명\",\n          \"result\": \"동료가 어떤 광고 반응을 보고 소재를 바꿨는지 이해할 것으로 예상\"\n        },\n        \"expectedEvidence\": [\n          \"가격 표기형으로 소재를 바꾼 판단을 동료에게 전달할 실제 설명\",\n          \"그 설명에 사용한 게시물 유형별 반응의 구체적인 비교\",\n          \"비교한 반응이 소재 변경 판단으로 이어지는 연결\"\n        ]\n      },\n      \"question\": \"꽃집 인스타그램 광고에서 가격 표기형으로 소재를 바꾼 판단을 광고를 잘 모르는 동료에게 설명한다면, 어떤 말로 설명하시겠어요?\",\n      \"answerTip\": \"상대에게 직접 말하듯 짧고 자연스러운 문장으로 답해 보세요.\",\n      \"evaluationRubric\": {\n        \"excellent\": {\n          \"criteria\": [\n            \"가격 표기형의 문의가 많았다는 지원서 표현을 반복하는 데 그치지 않고, 실제 비교한 반응의 차이를 구체적으로 짚어 광고 소재 변경 판단을 쉬운 말로 설명한다.\"\n          ]\n        },\n        \"acceptable\": {\n          \"criteria\": [\n            \"반응이 좋은 광고 소재에 집중했다는 취지는 전달하지만, 꽃집 광고에서 비교한 반응이나 그 해석은 일반적인 수준에 머문다.\"\n          ]\n        },\n        \"poor\": {\n          \"criteria\": [\n            \"광고 소재를 바꾼 판단에 대한 설명이 없거나, 광고 집행 이력 등 다른 이야기만 한다.\"\n          ]\n        }\n      }\n    }\n  ]\n}"
+    }
+  ]
+}
