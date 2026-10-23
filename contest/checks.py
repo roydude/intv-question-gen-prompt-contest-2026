@@ -19,7 +19,7 @@ ABSTRACT_TAIL = ("역량", "능력", "이해")
 VALID_QTYPE = {"behavioral", "situational"}
 VALID_MISSING = {"ExpectedEvidence", "Action", "Result", "Task", "Situation"}
 
-# A00 내부 값 노출: 입력·출력 JSON의 키 이름과 영어 변수명. 질문·답변 팁에 나오면 즉시 실격.
+# A00 내부 값 노출: 입력·출력 JSON의 키 이름과 영어 변수명. 질문·답변 팁에 나오면 그 케이스는 0점.
 LEAK_KEYS = [
     "positionId", "categoryId", "itemId", "categoryName", "categoryDefinition", "itemName", "itemDefinition",
     "positionInfo", "positionName", "jobDescription", "requirements", "preferredQualifications", "categories",
@@ -149,7 +149,7 @@ def check_assignments(text: str, case: dict, position: dict) -> CheckResult:
     idx = item_index(categories)
     exp = case.get("expectations", {})
 
-    # A00: 내부 값 노출 → 즉시 실격, 나머지 검사는 하지 않는다.
+    # A00: 내부 값 노출 → 그 케이스 0점, 나머지 검사는 하지 않는다.
     id_values = [position_info.get("positionId", "")] + list(idx.keys()) + [v["categoryId"] for v in idx.values()]
     leaks = []
     for iv in (obj.get("interviews") or []) if isinstance(obj, dict) else []:
@@ -159,7 +159,7 @@ def check_assignments(text: str, case: dict, position: dict) -> CheckResult:
             h = leak_hits(iv.get(field, ""), id_values)
             if h:
                 leaks.append(f"{iv.get('itemId', '?')}.{field}:{h}")
-    c.add("A00", "내부 값 노출 없음(있으면 즉시 실격)", not leaks, "; ".join(leaks))
+    c.add("A00", "내부 값 노출 없음(있으면 그 케이스 0점)", not leaks, "; ".join(leaks))
     if leaks:
         c.disqualified = True
         c.metrics = {"leaks": leaks}
@@ -233,7 +233,7 @@ def check_assignments(text: str, case: dict, position: dict) -> CheckResult:
         if not rb_ok:
             rb_bad.append(iid)
         tip = nfc(iv.get("answerTip", ""))
-        if klen(tip) > 30 or TIP_LEAK.search(tip):
+        if klen(tip) > 50 or TIP_LEAK.search(tip):
             tip_bad.append(f"{iid}({klen(tip)}자)")
         a = anchors.get(iid) or []
         if a:
@@ -244,7 +244,7 @@ def check_assignments(text: str, case: dict, position: dict) -> CheckResult:
     c.add("A07", "질문에 STAR 용어 없음", not star_bad, ", ".join(star_bad))
     c.add("A08", "questionType 값 유효", not type_bad, ", ".join(type_bad))
     c.add("A09", "금지 용어 없음", not forb_bad, ", ".join(forb_bad))
-    c.add("A10", "answerTip 30자 이내·평가 용어 노출 없음", not tip_bad, ", ".join(tip_bad))
+    c.add("A10", "answerTip 50자 이내·평가 용어 노출 없음", not tip_bad, ", ".join(tip_bad))
     c.add("A11", "Blueprint 완비(의도·STAR 4항·근거)", not bp_bad, ", ".join(bp_bad))
     c.add("A12", "Rubric 3단계 criteria 완비", not rb_bad, ", ".join(rb_bad))
     c.add("A13", "질문이 한국어", not ko_bad, ", ".join(ko_bad))

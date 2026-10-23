@@ -271,7 +271,7 @@ function renderPanel() {
          <p class="muted xs">평가 점수는 전체 케이스로 실행해야 나와요</p>`;
     body.innerHTML = `${head}<div class="divider"></div>
       ${st.rubric.map((d) => `<div class="kv"><span class="sub">${d.id} ${esc(d.name)}</span><span class="v">${r.dimAvg?.[d.id] ?? '-'} / ${d.weight}</span></div>`).join('')}
-      <div class="kv"><span class="sub">규칙 진단</span><span class="sub sm b5">위반 ${rf}건 · 점수 미반영</span></div>
+      <div class="kv"><span class="sub">규칙 진단</span><span class="sub sm b5">위반 ${rf}건</span></div>
       <div class="kv"><span class="sub">많이 걸린 유형</span><span class="org sm b6">${top ? `${top[0]} ${esc(failName(top[0]))} ×${top[1]}` : '없음'}</span></div>
       <button class="btn sm full" data-view="result">결과 보기</button>`;
   }
@@ -581,7 +581,7 @@ function renderResult(r) {
       <div class="bar ${d.id === 'J2' ? 'org' : ''}"><i style="width:${v == null ? 0 : (v / d.weight) * 100}%"></i></div>${desc}</div>`;
   }).join('');
   const rf = Object.entries(r.ruleFails || {}); const rfTotal = rf.reduce((a, [, v]) => a + v, 0);
-  $('rRules').innerHTML = `<b class="sm">규칙 진단 16개</b><span class="chip chip-gray sm">위반 ${rfTotal}건 · 점수 미반영</span>
+  $('rRules').innerHTML = `<b class="sm">규칙 진단 16개</b><span class="chip chip-gray sm">위반 ${rfTotal}건</span>
     ${rf.map(([k, v]) => `<span class="chip chip-orange sm">${k} ${esc(ruleName(k))} ×${v}</span>`).join('')}
     <button class="link" data-open="criteriaModal">기준 보기 →</button>`;
   const head = '<div class="tr head"><span>케이스</span><span>지원자</span><span>평가 주제</span><span>점수 · 기준</span><span>실패 유형</span><span>규칙 진단</span><span></span></div>';
