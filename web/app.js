@@ -568,7 +568,7 @@ function renderResult(r) {
   $('rBaseLabel').textContent = full ? '기준 점수 (v9.0.0)' : '같은 케이스 기준 (v9.0.0)';
   $('rBase').textContent = full ? (base.ready ? `${base.mean} · 패널티 기준 ${base.threshold}` : '산출 예정') : (same ?? '산출 예정');
   $('rScoreNote').textContent = full
-    ? '질문 20개 AI 채점 평균이에요. 기준 점수는 v9.0.0을 3회 생성·채점한 평균이고, 이보다 낮으면 패널티가 있어요.'
+    ? '질문 20개 AI 채점 평균이에요(연습 점수). 기준 점수는 v9.0.0을 공개 10개로 3회 잰 평균이에요. 패널티 기준은 공식 세트로 잰 v9.0.0 점수이고, 공식 점수와 비교해요.'
     : `${r.evalNote || ''} 비교는 같은 케이스의 기준선 평균과 해요.`;
   $('rVariance').textContent = base.ready ? `같은 프롬프트도 실행마다 점수가 달라질 수 있어요(기준선 흔들림 폭 ${base.spread}).` : '';
   const fails = Object.entries(r.failCounts || {});

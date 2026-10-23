@@ -396,6 +396,11 @@ def cmd_baseline(args) -> int:
         return 1
     workers = C.get("workers", 5)
     batches = max(1, -(-len(core.load_cases()) // workers))
+    case_vals: dict[str, list[float]] = {}
+    for x in runs:
+        for c in x["detail"]["items"]:
+            if c.get("avg") is not None:
+                case_vals.setdefault(c["caseId"], []).append(c["avg"])
     out = {
         "createdAt": recorder.now_iso(),
         "model": model, "effort": effort, "judge": C["judge"],
@@ -403,10 +408,11 @@ def cmd_baseline(args) -> int:
         "spread": round(max(scores) - min(scores), 1),
         "scores": scores,
         "secPerCase": round(sum(x["durationSec"] for x in runs) / len(runs) / batches, 1),
+        "caseAvg": {k: round(sum(v) / len(v), 1) for k, v in case_vals.items()},
         "runs": runs,
     }
     (core.BASELINE_DIR / "results.json").write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-    _p(f"  기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} · 패널티 기준 {out['mean']}")
+    _p(f"  연습 기준 점수 {out['mean']} · 흔들림 폭 {out['spread']} (패널티 기준은 baseline/official.json)")
     _p("  baseline/results.json 에 저장했어요. main에 커밋해 참가자에게 배포하세요.")
     return 0
 
